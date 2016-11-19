@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package statusMessagesProtobuf;
+
+option java_package = "org.holmesprocessing.totem.monitoring";
+option java_outer_classname = "StatusMessagesProtobuf";
+
+
+
+// -----------------------------------------------------------------------------
+// Status messages.
+// Sent by planners to the Storage API.
+// Needs to fit in one UDP package. (65kB limit, this implementation limits it
+// to exactly 0xfde8 = 65000)
+//
+
+message StatusMessage {
+  // for the initial message, high number, we only send this upon initialization
+  // of the connection (identifiers 1-15 use 1 byte, 16-2047 2 bytes)
+  PlannerInfo plannerInfo = 2048;
+
+  // any subsequent message should contain only one of the following:
+  SystemStatus  systemStatus  = 1;
+  NetworkStatus networkStatus = 2;
+  PlannerStatus plannerStatus = 3;
+  ServiceStatus serviceStatus = 4;
+}
+
+message PlannerInfo {
+  // name is the planner's name, e.g. Holmes-Totem / Holmes-Storage / etc
+  // ipAddress is the interface that the planner is listening on
+  // port is the port that the planner is listening on
+  string  name          = 1;
+  string  listenAddress = 2;
+
+  // if a client choses to disconnect from the server should not mistake this as
+  // an error but rather remove the client from its client cache
+  bool    disconnect  = 2048;
+}
+
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Status.
+//
+
+message SystemStatus {
+  uint64 uptime      = 1;
+  uint32 cpuLoad     = 2;
+  uint64 memoryUsage = 3;
+  uint64 memoryMax   = 4;
+  uint64 diskUsage   = 5;
+  uint64 diskMax     = 6;
+}
+
+message NetworkStatus {
+  repeated NetworkInterface interfaces = 1;
+}
+
+message PlannerStatus {
+  string                configProfileName = 1;
+
+  repeated string       logs              = 2;
+  repeated StatusKvPair kvPairs           = 15;
+  repeated bytes        extraData         = 16;
+}
+
+message ServiceStatus {
+  string                configProfileName = 1;
+  string                name              = 2;
+  uint32                port              = 3;
+  string                task              = 4;
+
+  repeated string       logs              = 5;
+  repeated StatusKvPair kvPairs           = 15;
+  repeated bytes        extraData         = 16;
+}
+
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Status helpers.
+//
+
+message NetworkInterface {
+  string name      = 1;
+  string hwaddr    = 2;
+  string inetaddr  = 3;
+  string netmask   = 4;
+  string iface     = 5;
+  // TODO network throughput?
+}
+
+message StatusKvPair {
+  string key    = 1;
+  string value  = 2;
+}
+
+
+
+// -----------------------------------------------------------------------------
+// Control messages.
+//
+
+message ControlMessage {
+  // Ack type responses are only for rarely sent messages (like planner info
+  // which is only sent once at the start of a connection and is required by
+  // the planner to know whether or not he's actually communicating with a
+  // status endpoint).
+  bool ackConnect    = 2048;
+  bool ackDisconnect = 2049;
+
+  // These byte arrays are for any potential data transferred back
+  // that cannot be foreseen here (e.g. data for debugging purposes)
+  repeated bytes extraData = 2050;
+}
