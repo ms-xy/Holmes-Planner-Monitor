@@ -10,6 +10,7 @@ import (
 type PlannerInfo struct {
 	Name          string
 	ListenAddress *net.TCPAddr
+	Connect       bool
 	Disconnect    bool
 }
 
@@ -19,6 +20,7 @@ func (this *PlannerInfo) FromPb(o *pb.PlannerInfo) *PlannerInfo {
 		this.ListenAddress, _ = net.ResolveTCPAddr("tcp", o.ListenAddress)
 		// TODO: error handling, we just got a malformed PlannerInfo ...
 	}
+	this.Connect = o.Connect
 	this.Disconnect = o.Disconnect
 	return this
 }
@@ -31,6 +33,7 @@ func (this *PlannerInfo) ToPb() *pb.PlannerInfo {
 	return &pb.PlannerInfo{
 		Name:          this.Name,
 		ListenAddress: listenAddress,
+		Connect:       this.Connect,
 		Disconnect:    this.Disconnect,
 	}
 }
@@ -38,32 +41,47 @@ func (this *PlannerInfo) ToPb() *pb.PlannerInfo {
 // -----------------------------------------------------------------------------
 
 type SystemStatus struct {
-	Uptime      uint64
-	CpuLoad     uint32
+	Uptime      int64
+	LoadPercent float64 // Average load of all cpus during the last 1 second
+
 	MemoryUsage uint64
 	MemoryMax   uint64
 	DiskUsage   uint64
 	DiskMax     uint64
+
+	Loads1  float64 // System load as reported by sysinfo syscall
+	Loads5  float64
+	Loads15 float64
 }
 
 func (this *SystemStatus) FromPb(o *pb.SystemStatus) *SystemStatus {
-	this.Uptime = o.Uptime
-	this.CpuLoad = o.CpuLoad
+	this.Uptime = int64(o.Uptime)
+	this.LoadPercent = o.LoadPercent
+
 	this.MemoryUsage = o.MemoryUsage
 	this.MemoryMax = o.MemoryMax
 	this.DiskUsage = o.DiskUsage
 	this.DiskMax = o.DiskMax
+
+	this.Loads1 = o.Loads1
+	this.Loads5 = o.Loads5
+	this.Loads15 = o.Loads15
 	return this
 }
 
 func (this *SystemStatus) ToPb() *pb.SystemStatus {
 	return &pb.SystemStatus{
-		Uptime:      this.Uptime,
-		CpuLoad:     this.CpuLoad,
+		Uptime:      uint64(this.Uptime),
+		LoadPercent: this.LoadPercent,
+
 		MemoryUsage: this.MemoryUsage,
 		MemoryMax:   this.MemoryMax,
 		DiskUsage:   this.DiskUsage,
 		DiskMax:     this.DiskMax,
+
+		Loads1:  this.Loads1,
+		Loads5:  this.Loads5,
+		Loads15: this.Loads15,
 	}
 }
 
@@ -106,14 +124,12 @@ type PlannerStatus struct {
 	ConfigProfileName string
 	Logs              []string
 	ExtraData         [][]byte
-	KvPairs           []*StatusKvPair // TODO: probably remove kvpairs entirely?
 }
 
 func (this *PlannerStatus) FromPb(o *pb.PlannerStatus) *PlannerStatus {
 	this.ConfigProfileName = o.ConfigProfileName
 	this.Logs = o.Logs
 	this.ExtraData = o.ExtraData
-	this.KvPairs = kvPairsFromPb(o.KvPairs) // TODO: probably remove kvpairs entirely?
 	return this
 }
 
@@ -122,28 +138,25 @@ func (this *PlannerStatus) ToPb() *pb.PlannerStatus {
 		ConfigProfileName: this.ConfigProfileName,
 		Logs:              this.Logs,
 		ExtraData:         this.ExtraData,
-		KvPairs:           kvPairsToPb(this.KvPairs), // TODO: probably remove kvpairs entirely?
 	}
 }
 
 type ServiceStatus struct {
 	ConfigProfileName string
 	Name              string
-	Port              uint32
+	Port              uint16
 	Task              string
 	Logs              []string
 	ExtraData         [][]byte
-	KvPairs           []*StatusKvPair // TODO: probably remove kvpairs entirely?
 }
 
 func (this *ServiceStatus) FromPb(o *pb.ServiceStatus) *ServiceStatus {
 	this.ConfigProfileName = o.ConfigProfileName
 	this.Name = o.Name
-	this.Port = o.Port
+	this.Port = uint16(o.Port)
 	this.Task = o.Task
 	this.Logs = o.Logs
 	this.ExtraData = o.ExtraData
-	this.KvPairs = kvPairsFromPb(o.KvPairs) // TODO: probably remove kvpairs entirely?
 	return this
 }
 
@@ -151,11 +164,10 @@ func (this *ServiceStatus) ToPb() *pb.ServiceStatus {
 	return &pb.ServiceStatus{
 		ConfigProfileName: this.ConfigProfileName,
 		Name:              this.Name,
-		Port:              this.Port,
+		Port:              uint32(this.Port),
 		Task:              this.Task,
 		Logs:              this.Logs,
-		ExtraData:         this.ExtraData, // TODO: probably remove kvpairs entirely?
-		KvPairs:           kvPairsToPb(this.KvPairs),
+		ExtraData:         this.ExtraData,
 	}
 }
 

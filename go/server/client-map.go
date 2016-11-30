@@ -142,7 +142,7 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 		}
 	}
 
-	if session == nil {
+	if session == nil { // -> !exists -> is new
 		fmt.Println("-- new addrKey and listenAddrKey")
 		fmt.Println("\t", addrKey)
 		fmt.Println("\t", listenAddrKey)
@@ -162,7 +162,7 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 	session.addrKey = addrKey
 	session.listenAddrKey = listenAddrKey
 
-	return session
+	return session, !exists
 }
 
 // Remove a session from the session storage

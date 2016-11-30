@@ -9,6 +9,8 @@ import (
 	"net"
 	// "sync/atomic" // atomic.AddUint64(&last_client_id, 1)
 	"time"
+
+	"fmt"
 )
 
 var (
@@ -48,12 +50,12 @@ func ListenAndServe(httpbinding string, statusrouter StatusRouter) error {
 }
 
 type StatusRouter interface {
-	RecvPlannerInfo(plannerinfo *types.PlannerInfo, client *Session) *types.ControlMessage
-	RecvSystemStatus(systemstatus *types.SystemStatus, client *Session) *types.ControlMessage
-	RecvNetworkStatus(networkstatus *types.NetworkStatus, client *Session) *types.ControlMessage
-	RecvPlannerStatus(plannerstatus *types.PlannerStatus, client *Session) *types.ControlMessage
-	RecvServiceStatus(servicestatus *types.ServiceStatus, client *Session) *types.ControlMessage
-	HandleError(err error, client *Session)
+	RecvPlannerInfo(plannerinfo *types.PlannerInfo, client *Session, isnew bool) *types.ControlMessage
+	RecvSystemStatus(systemstatus *types.SystemStatus, client *Session, isnew bool) *types.ControlMessage
+	RecvNetworkStatus(networkstatus *types.NetworkStatus, client *Session, isnew bool) *types.ControlMessage
+	RecvPlannerStatus(plannerstatus *types.PlannerStatus, client *Session, isnew bool) *types.ControlMessage
+	RecvServiceStatus(servicestatus *types.ServiceStatus, client *Session, isnew bool) *types.ControlMessage
+	HandleError(err error, client *Session, isnew bool)
 }
 
 type AddressedStatusMessage struct {
@@ -76,35 +78,36 @@ func dispatcher() {
 		// dispatch depending on contained messages
 		go func(asm AddressedStatusMessage) {
 			// get session instance / create if not exists
-			session := sessionmap.StartSession(asm)
+			session, isnew := sessionmap.StartSession(asm)
 			now := time.Now()
+
+			session.LastSeen = now
+			if isnew {
+				session.FirstSeen = now
+			}
 
 			var (
 				cmsg *types.ControlMessage
 			)
 
-			session.LastSeen = now
-
 			if asm.Message.ServiceStatus != nil {
 				session.Last.ServiceStatus = now
-				cmsg = router.RecvServiceStatus((&types.ServiceStatus{}).FromPb(asm.Message.ServiceStatus), session)
+				cmsg = router.RecvServiceStatus((&types.ServiceStatus{}).FromPb(asm.Message.ServiceStatus), session, isnew)
 
 			} else if asm.Message.PlannerStatus != nil {
 				session.Last.PlannerStatus = now
-				cmsg = router.RecvPlannerStatus((&types.PlannerStatus{}).FromPb(asm.Message.PlannerStatus), session)
+				cmsg = router.RecvPlannerStatus((&types.PlannerStatus{}).FromPb(asm.Message.PlannerStatus), session, isnew)
 
 			} else if asm.Message.SystemStatus != nil {
 				session.Last.SystemStatus = now
-				cmsg = router.RecvSystemStatus((&types.SystemStatus{}).FromPb(asm.Message.SystemStatus), session)
+				cmsg = router.RecvSystemStatus((&types.SystemStatus{}).FromPb(asm.Message.SystemStatus), session, isnew)
 
 			} else if asm.Message.NetworkStatus != nil {
 				session.Last.NetworkStatus = now
-				cmsg = router.RecvNetworkStatus((&types.NetworkStatus{}).FromPb(asm.Message.NetworkStatus), session)
+				cmsg = router.RecvNetworkStatus((&types.NetworkStatus{}).FromPb(asm.Message.NetworkStatus), session, isnew)
 
 			} else if asm.Message.PlannerInfo != nil {
-				session.FirstSeen = now
-				cmsg = router.RecvPlannerInfo((&types.PlannerInfo{}).FromPb(asm.Message.PlannerInfo), session)
-
+				cmsg = router.RecvPlannerInfo((&types.PlannerInfo{}).FromPb(asm.Message.PlannerInfo), session, isnew)
 			}
 
 			if cmsg != nil {
@@ -156,6 +159,7 @@ func sender() {
 	)
 	for {
 		acm = <-outQueue
+		fmt.Println("-- sending control message: ", acm)
 		bytes, err = proto.Marshal(acm.Message.ToPb())
 		if err != nil {
 			// oops? log? (push to router too)

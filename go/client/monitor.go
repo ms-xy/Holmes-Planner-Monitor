@@ -2,12 +2,15 @@ package client
 
 import (
 	"github.com/golang/protobuf/proto"
+	Sysinfo "github.com/ms-xy/Holmes-Planner-Monitor/go/client/sysinfo"
 	"github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
 	pb "github.com/ms-xy/Holmes-Planner-Monitor/protobuf/generated-go"
 
 	"errors"
 	"net"
+	"sync"
 	"time"
+	// "fmt"
 )
 
 var (
@@ -18,6 +21,9 @@ var (
 	connection *net.UDPConn
 	buffer     []byte = make([]byte, 0xfde8)
 	connected  bool
+
+	// Automatic status information gathering (sysinfo, meminfo, cpuinfo)
+	sysinfo *Sysinfo.Sysinfo
 
 	// Data Transfer
 	//
@@ -35,6 +41,8 @@ var (
 	//
 	statusMessageChannel  chan *pb.StatusMessage
 	controlMessageChannel chan *msgtypes.ControlMessage
+	disconnect            chan struct{}
+	disconnectWaitGroup   *sync.WaitGroup
 
 	// Names for Messages
 	plannerInfo *pb.PlannerInfo
@@ -57,9 +65,14 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		// localAddr int
 		err  error
 		ackd bool
-		cmsg *msgtypes.ControlMessage
 	)
-	// Connect to the server
+
+	logf(LogLevelDebug, "Initializing sysinfo")
+	sysinfo, err = Sysinfo.New()
+	if err != nil {
+		return err
+	}
+
 	logf(LogLevelDebug, "Connecting to %s", remoteAddr)
 	if raddr, err = net.ResolveUDPAddr("udp", remoteAddr); err == nil {
 		connection, err = net.DialUDP("udp", nil, raddr)
@@ -69,51 +82,47 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		stateTransition(StateConnecting, StateDisconnected)
 		return err
 	}
-	// Send PlannerInfo and await acknowledge
-	// At max 10 retries
+
 	// TODO: configuration option / parameter for number of retries and timeout
-	plannerInfo = info.ToPb()
-	// Send the PlannerInfo every 2 seconds until it is ack'd for a max of 10
-	// retries
-	ackd = false
-	for i := 0; i < 10; i++ {
-		if err = send(&pb.StatusMessage{PlannerInfo: plannerInfo}); err == nil {
-			logf(LogLevelDebug, "Sending planner information (attempt %d)", i+1)
-			connection.SetReadDeadline(time.Now().Add(time.Duration(2 * time.Second)))
-			if cmsg, err = recv(); err == nil {
-				if cmsg.AckConnect {
-					ackd = true
-				} else {
-					log(LogLevelDebug, "Status module responded with ACK != true to planner information")
-				}
-				break
-			} else {
-				log(LogLevelDebug, "Failed to receive ACK-response: "+err.Error())
-			}
-		} else {
-			log(LogLevelDebug, "Failed to send planner information: "+err.Error())
-		}
+	interval := 2 * time.Second
+	maxRetry := 10
+	logf(LogLevelDebug, "Attempt to connect to Holmes-Status, %d retries, %s timeout", maxRetry, interval.String())
+
+	msg := &pb.StatusMessage{PlannerInfo: info.ToPb()}
+	fn := func(msg *msgtypes.ControlMessage) bool {
+		return msg.AckConnect
 	}
-	// Remove read deadline ((time.Time{}).IsZero() == true)
-	connection.SetReadDeadline(time.Time{})
-	// Check Ack status, if Ack failed, connection is assumed failed too
+	ackd, err = sendUntil(msg, fn, interval, maxRetry)
+
+	// if no acknowledge received, connection attempt has failed
 	if !ackd {
 		if err == nil {
-			// TODO: this line definitly needs an upgrade, can also be a connection
-			// failure
+			// TODO: this line definitly needs an improvement
+			// could be a connection problem too, not just no ack received
 			err = errors.New("Status Server: Ack=False")
 		}
 		connection.Close()
-		connection = nil
 		stateTransition(StateConnecting, StateDisconnected)
 		return err
 	}
-	log(LogLevelDebug, "Received ACK for planner information")
+	log(LogLevelDebug, "Status Server: Ack=True")
+
 	// Create channels and launch incoming as well as outgoing message loops
+	// The quit channel is just a cheap throwaway channel to function as an easy
+	// interrupt for the connection loops
 	statusMessageChannel = make(chan *pb.StatusMessage, 1000)
 	controlMessageChannel = make(chan *msgtypes.ControlMessage, 1000)
 	go statusMessageLoop()
 	go controlMessageLoop()
+
+	// Start loop to gather some status automatically
+	go automaticStatusLoop()
+
+	// data structures to handle disconnecting
+	disconnect = make(chan struct{})
+	disconnectWaitGroup = &sync.WaitGroup{}
+
+	// signal connection state
 	connected = true
 	log(LogLevelDebug, "Connected")
 	stateTransition(StateConnecting, StateConnected)
@@ -131,15 +140,21 @@ func Disconnect() error {
 		logf(LogLevelDebug, "Cannot disconnect because monitor is %s", state.String())
 		return errors.New("Cannot disconnect because monitor is " + state.String())
 	}
+
 	// TODO: Implmement a graceful disconnect from the server
 	// TODO: send termination package, requires an ACK to work properly
 	// TODO: but only with max retries just like for connect
-	// Close all channels, this stops the loops as well
+
+	// Interupt loops
+	disconnectWaitGroup.Add(3) // TODO: how many routines do we actually have?
+	connected = false          // this prevents any more messages to be sent
+	close(disconnect)
+	disconnectWaitGroup.Wait()
 	close(statusMessageChannel)
 	close(controlMessageChannel)
-	connected = false
+
+	// Close the connection and signal connection state
 	connection.Close()
-	connection = nil
 	stateTransition(StateDisconnecting, StateDisconnected)
 	return nil
 }
@@ -154,12 +169,19 @@ func send(msg *pb.StatusMessage) error {
 	return err
 }
 
-func recv() (*msgtypes.ControlMessage, error) {
+type singleMsgStruct struct {
+	err error
+	msg *msgtypes.ControlMessage
+}
+
+func recv(singleMsgChan chan singleMsgStruct) {
 	var (
+		n    int
 		err  error
 		rmsg = &msgtypes.ControlMessage{}
 	)
-	if n, err := connection.Read(buffer); err == nil {
+	// TODO: what happens if connection is closed to read?
+	if n, err = connection.Read(buffer); err == nil {
 		if n > 0 {
 			msg := &pb.ControlMessage{}
 			if err = proto.Unmarshal(buffer[0:n], msg); err == nil {
@@ -167,50 +189,141 @@ func recv() (*msgtypes.ControlMessage, error) {
 			}
 		}
 	}
-	return rmsg, err
+	singleMsgChan <- singleMsgStruct{err, rmsg}
+}
+
+func sendUntil(msg *pb.StatusMessage, fn func(*msgtypes.ControlMessage) bool, interval time.Duration, maxRetry int) (bool, error) {
+	singleMsgChan := make(chan singleMsgStruct, 1)
+	defer close(singleMsgChan)
+
+	// Remove read deadline ((time.Time{}).IsZero() == true)
+	defer connection.SetReadDeadline(time.Time{})
+
+	var err error
+
+	for i := 0; i < maxRetry; i++ {
+		if err = send(msg); err == nil {
+
+			connection.SetReadDeadline(time.Now().Add(interval))
+
+			go recv(singleMsgChan)
+			r := <-singleMsgChan
+
+			if r.err == nil {
+				if fn(r.msg) {
+					return true, nil
+				}
+			} else {
+				err = r.err
+			}
+		}
+	}
+
+	return false, err
 }
 
 // -----------------------------------------------------------------------------
 
 func statusMessageLoop() {
 	for {
-		msg, ok := <-statusMessageChannel
-		if !ok {
+
+		select {
+		case <-disconnect:
+			disconnectWaitGroup.Done()
 			return
+
+		case msg := <-statusMessageChannel:
+			send(msg)
+			// TODO: treat possible error return from send
+
 		}
-		send(msg)
-		// TODO: treat possible error return from send
 	}
 }
 
 func controlMessageLoop() {
+	singleMsgChan := make(chan singleMsgStruct, 1)
+	// defer close(singleMsgChan) // TODO: close it, but needs to be done in recv
+
 	for {
-		msg, _ := recv()
-		if msg != nil { // if recv times out, (nil, nil) is returned
-			// TODO: what happens if connection is closed to read? and subsequently,
-			// will this assignment fail? (probably panic?)
-			controlMessageChannel <- msg
+		go recv(singleMsgChan)
+
+		select {
+		case <-disconnect:
+			disconnectWaitGroup.Done()
+			return
+
+		case r := <-singleMsgChan:
+			if r.err != nil {
+				// TODO handle error
+				logf(LogLevelDebug, "-- Error receiving control message: %v ;;; %v", r.err, r.msg)
+				continue
+			}
+			if r.msg != nil {
+				// if recv times out, (nil, nil) is returned
+				controlMessageChannel <- r.msg
+			}
 		}
-		// TODO: treat possible error return from recv
+
+	}
+}
+
+func automaticStatusLoop() {
+	SystemStatus(&msgtypes.SystemStatus{
+		Uptime:      sysinfo.System.Uptime,
+		MemoryUsage: sysinfo.Ram.Used,
+		MemoryMax:   sysinfo.Ram.Total,
+		Loads1:      sysinfo.System.Load[0],
+		Loads5:      sysinfo.System.Load[1],
+		Loads15:     sysinfo.System.Load[2],
+	})
+	for {
+		select {
+		case <-disconnect:
+			disconnectWaitGroup.Done()
+			return
+		case <-time.After(5 * time.Second):
+			// Not updating cores as they cannot change at runtime? (TODO: verify!)
+			sysinfo.UpdateMeminfo()
+			sysinfo.UpdateSysinfo()
+			SystemStatus(&msgtypes.SystemStatus{
+				MemoryUsage: sysinfo.Ram.Used,
+				Loads1:      sysinfo.System.Load[0],
+				Loads5:      sysinfo.System.Load[1],
+				Loads15:     sysinfo.System.Load[2],
+			})
+		}
 	}
 }
 
 // -----------------------------------------------------------------------------
 
+func enqueue(msg *pb.StatusMessage) {
+	if !connected {
+		return
+	}
+	select {
+	case <-disconnect:
+		// in case the queue is full when connection is terminated to avoid
+		// orphaned goroutines lingering around, as well as panics, return
+		return
+	case statusMessageChannel <- msg:
+	}
+}
+
 func SystemStatus(msg *msgtypes.SystemStatus) {
-	statusMessageChannel <- &pb.StatusMessage{SystemStatus: msg.ToPb()}
+	enqueue(&pb.StatusMessage{SystemStatus: msg.ToPb()})
 }
 
 func NetworkStatus(msg *msgtypes.NetworkStatus) {
-	statusMessageChannel <- &pb.StatusMessage{NetworkStatus: msg.ToPb()}
+	enqueue(&pb.StatusMessage{NetworkStatus: msg.ToPb()})
 }
 
 func PlannerStatus(msg *msgtypes.PlannerStatus) {
-	statusMessageChannel <- &pb.StatusMessage{PlannerStatus: msg.ToPb()}
+	enqueue(&pb.StatusMessage{PlannerStatus: msg.ToPb()})
 }
 
 func ServiceStatus(msg *msgtypes.ServiceStatus) {
-	statusMessageChannel <- &pb.StatusMessage{ServiceStatus: msg.ToPb()}
+	enqueue(&pb.StatusMessage{ServiceStatus: msg.ToPb()})
 }
 
 func IncomingControlMessages() chan *msgtypes.ControlMessage {

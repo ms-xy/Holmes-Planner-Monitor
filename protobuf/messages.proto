@@ -30,12 +30,15 @@ message PlannerInfo {
   // name is the planner's name, e.g. Holmes-Totem / Holmes-Storage / etc
   // ipAddress is the interface that the planner is listening on
   // port is the port that the planner is listening on
-  string  name          = 1;
-  string  listenAddress = 2;
+  string name          = 1;
+  string listenAddress = 2;
 
-  // if a client choses to disconnect from the server should not mistake this as
-  // an error but rather remove the client from its client cache
-  bool    disconnect  = 2048;
+  // if a client choses to disconnect, the server should not mistake this as
+  // an error but rather remove the client from its client cachex
+  // additionally the server does not need to respond unless the client requests
+  // a connection confirmation
+  bool disconnect = 2048;
+  bool connect    = 2049;
 }
 
 
@@ -46,11 +49,16 @@ message PlannerInfo {
 
 message SystemStatus {
   uint64 uptime      = 1;
-  uint32 cpuLoad     = 2;
+  double loadPercent = 2;
+
   uint64 memoryUsage = 3;
   uint64 memoryMax   = 4;
   uint64 diskUsage   = 5;
   uint64 diskMax     = 6;
+
+  double Loads1      = 7;
+  double Loads5      = 8;
+  double Loads15     = 9;
 }
 
 message NetworkStatus {
@@ -61,7 +69,6 @@ message PlannerStatus {
   string                configProfileName = 1;
 
   repeated string       logs              = 2;
-  repeated StatusKvPair kvPairs           = 15;
   repeated bytes        extraData         = 16;
 }
 
@@ -72,7 +79,6 @@ message ServiceStatus {
   string                task              = 4;
 
   repeated string       logs              = 5;
-  repeated StatusKvPair kvPairs           = 15;
   repeated bytes        extraData         = 16;
 }
 
