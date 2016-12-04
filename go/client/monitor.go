@@ -54,6 +54,9 @@ var (
 // status connection with the given planner name.
 // Addresses must have the format host:port or [ipv6-host%zone]:port.
 // Terminate an old connection if exists.
+//
+// TODO: implement UUID transfer, save in /var/cache/Holmes-Processing/machine.uuid
+//
 func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 	// To avoid race conditions we have to check whether or not we are allowed to
 	// continue.
@@ -277,7 +280,7 @@ func controlMessageLoop() {
 // -----------------------------------------------------------------------------
 
 func automaticStatusLoop() {
-	SystemStatus(&msgtypes.SystemStatus{
+	systemStatus(&msgtypes.SystemStatus{
 		Uptime:      sysinfo.System.Uptime,
 		MemoryUsage: sysinfo.Ram.Used,
 		MemoryMax:   sysinfo.Ram.Total,
@@ -285,9 +288,10 @@ func automaticStatusLoop() {
 		Loads5:      sysinfo.System.Load[1],
 		Loads15:     sysinfo.System.Load[2],
 	})
-	NetworkStatus(&msgtypes.NetworkStatus{
+	networkStatus(&msgtypes.NetworkStatus{
 		Interfaces: netinfo,
 	})
+	i := 0
 	for {
 		select {
 		case <-disconnect:
@@ -296,9 +300,10 @@ func automaticStatusLoop() {
 		case <-time.After(5 * time.Second):
 			// Send an update about the system status
 			// Not updating cores as they cannot change at runtime? (TODO: verify!)
+			// TODO: treat potential errors returned from both functions
 			sysinfo.UpdateMeminfo()
 			sysinfo.UpdateSysinfo()
-			SystemStatus(&msgtypes.SystemStatus{
+			systemStatus(&msgtypes.SystemStatus{
 				Uptime:      sysinfo.System.Uptime,
 				MemoryUsage: sysinfo.Ram.Used,
 				MemoryMax:   sysinfo.Ram.Total,
@@ -306,6 +311,14 @@ func automaticStatusLoop() {
 				Loads5:      sysinfo.System.Load[1],
 				Loads15:     sysinfo.System.Load[2],
 			})
+			if i == 3 {
+				// TODO: treat potential error
+				netinfo, _ = Netinfo.Get()
+				networkStatus(&msgtypes.NetworkStatus{
+					Interfaces: netinfo,
+				})
+			}
+			i = (i + 1) % 4
 		}
 	}
 }
@@ -328,17 +341,17 @@ func enqueue(msg *pb.StatusMessage) {
 // -----------------------------------------------------------------------------
 
 // The system status and network status types are gathered automatically, as
-// such they use the less convenient, but easier maintainable interface
-func SystemStatus(msg *msgtypes.SystemStatus) {
+// such they use the less convenient, but easier maintainable interface.
+// Further for that very reason they are not public.
+func systemStatus(msg *msgtypes.SystemStatus) {
 	enqueue(&pb.StatusMessage{SystemStatus: msg.ToPb()})
 }
-func NetworkStatus(msg *msgtypes.NetworkStatus) {
+func networkStatus(msg *msgtypes.NetworkStatus) {
 	enqueue(&pb.StatusMessage{NetworkStatus: msg.ToPb()})
 }
 
-// Two alternatives for planner status, the API conform version and the
-// multi-param version, the multi-param might be more acceptable by many ...
-// but is less nice too look at
+// Two alternatives for planner status, better maintainable version and the
+// multi-param version. The latter is easier to use.
 
 // func PlannerStatus(msg *msgtypes.PlannerStatus) {
 // 	enqueue(&pb.StatusMessage{PlannerStatus: msg.ToPb()})

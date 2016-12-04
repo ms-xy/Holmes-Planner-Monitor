@@ -2,10 +2,10 @@ package main
 
 import (
 	monitor "github.com/ms-xy/Holmes-Planner-Monitor/go/client"
-	"github.com/ms-xy/Holmes-Planner-Monitor/go/client/sysinfo"
 	"github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
 
-	"github.com/dustin/go-humanize"
+	// "github.com/dustin/go-humanize"
+	// "github.com/ms-xy/Holmes-Planner-Monitor/go/client/sysinfo"
 
 	"fmt"
 	"net"
@@ -43,9 +43,10 @@ func main() {
 		go service(a)
 	}
 
-	si, err := sysinfo.New()
-	fmt.Printf("memory usage: %s/%s \n", humanize.Bytes((si.Ram.Used)), humanize.Bytes((si.Ram.Total)))
-	fmt.Printf("swap usage: %s/%s \n", humanize.Bytes((si.Swap.Used)), humanize.Bytes((si.Swap.Total)))
+	// this is just additional and not needed (here for evaluation purposes)
+	// si, err := sysinfo.New()
+	// fmt.Printf("memory usage: %s/%s \n", humanize.Bytes((si.Ram.Used)), humanize.Bytes((si.Ram.Total)))
+	// fmt.Printf("swap usage: %s/%s \n", humanize.Bytes((si.Swap.Used)), humanize.Bytes((si.Swap.Total)))
 
 	for msg := range monitor.IncomingControlMessages() {
 		fmt.Println("received control message: ", msg)
