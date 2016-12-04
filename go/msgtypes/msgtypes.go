@@ -94,11 +94,12 @@ func (this *NetworkStatus) FromPb(o *pb.NetworkStatus) *NetworkStatus {
 	this.Interfaces = make([]*NetworkInterface, l)
 	for i := 0; i < l; i++ {
 		this.Interfaces[i] = &NetworkInterface{
-			Name:     o.Interfaces[i].Name,
-			Hwaddr:   o.Interfaces[i].Hwaddr,
-			Inetaddr: o.Interfaces[i].Inetaddr,
-			Netmask:  o.Interfaces[i].Netmask,
-			Iface:    o.Interfaces[i].Iface,
+			ID:        int(o.Interfaces[i].Id),
+			Name:      o.Interfaces[i].Name,
+			IP:        net.IP(o.Interfaces[i].Ip),
+			Netmask:   net.IPMask(o.Interfaces[i].Netmask),
+			Broadcast: net.IP(o.Interfaces[i].Broadcast),
+			Scope:     o.Interfaces[i].Scope,
 		}
 	}
 	return this
@@ -110,11 +111,12 @@ func (this *NetworkStatus) ToPb() *pb.NetworkStatus {
 	o.Interfaces = make([]*pb.NetworkInterface, l)
 	for i := 0; i < l; i++ {
 		o.Interfaces[i] = &pb.NetworkInterface{
-			Name:     this.Interfaces[i].Name,
-			Hwaddr:   this.Interfaces[i].Hwaddr,
-			Inetaddr: this.Interfaces[i].Inetaddr,
-			Netmask:  this.Interfaces[i].Netmask,
-			Iface:    this.Interfaces[i].Iface,
+			Id:        int32(this.Interfaces[i].ID),
+			Name:      this.Interfaces[i].Name,
+			Ip:        this.Interfaces[i].IP,
+			Netmask:   this.Interfaces[i].Netmask,
+			Broadcast: this.Interfaces[i].Broadcast,
+			Scope:     this.Interfaces[i].Scope,
 		}
 	}
 	return o
@@ -174,11 +176,12 @@ func (this *ServiceStatus) ToPb() *pb.ServiceStatus {
 // -----------------------------------------------------------------------------
 
 type NetworkInterface struct {
-	Name     string
-	Hwaddr   string
-	Inetaddr string
-	Netmask  string
-	Iface    string
+	ID        int
+	Name      string
+	IP        net.IP
+	Netmask   net.IPMask
+	Broadcast net.IP
+	Scope     string
 }
 
 type StatusKvPair struct {

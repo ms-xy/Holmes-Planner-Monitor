@@ -89,12 +89,15 @@ message ServiceStatus {
 //
 
 message NetworkInterface {
-  string name      = 1;
-  string hwaddr    = 2;
-  string inetaddr  = 3;
-  string netmask   = 4;
-  string iface     = 5;
-  // TODO network throughput?
+  int32  id         = 1;
+  string name       = 2;
+  bytes  ip         = 3;
+  bytes  netmask    = 4;
+  bytes  broadcast  = 5;
+  string scope      = 6;
+  // TODO maybe add network throughput? (gotta look at bmon source codes, they
+  // somehow get the total usage and throughput statistics in a pretty accurate
+  // manner)
 }
 
 message StatusKvPair {

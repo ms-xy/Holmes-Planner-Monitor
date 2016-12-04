@@ -2,6 +2,7 @@ package client
 
 import (
 	"github.com/golang/protobuf/proto"
+	Netinfo "github.com/ms-xy/Holmes-Planner-Monitor/go/client/netinfo"
 	Sysinfo "github.com/ms-xy/Holmes-Planner-Monitor/go/client/sysinfo"
 	"github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
 	pb "github.com/ms-xy/Holmes-Planner-Monitor/protobuf/generated-go"
@@ -24,6 +25,7 @@ var (
 
 	// Automatic status information gathering (sysinfo, meminfo, cpuinfo)
 	sysinfo *Sysinfo.Sysinfo
+	netinfo []*msgtypes.NetworkInterface
 
 	// Data Transfer
 	//
@@ -69,6 +71,11 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 
 	logf(LogLevelDebug, "Initializing sysinfo")
 	sysinfo, err = Sysinfo.New()
+	if err != nil {
+		return err
+	}
+	logf(LogLevelDebug, "Initializing netinfo")
+	netinfo, err = Netinfo.Get()
 	if err != nil {
 		return err
 	}
@@ -267,6 +274,8 @@ func controlMessageLoop() {
 	}
 }
 
+// -----------------------------------------------------------------------------
+
 func automaticStatusLoop() {
 	SystemStatus(&msgtypes.SystemStatus{
 		Uptime:      sysinfo.System.Uptime,
@@ -276,17 +285,23 @@ func automaticStatusLoop() {
 		Loads5:      sysinfo.System.Load[1],
 		Loads15:     sysinfo.System.Load[2],
 	})
+	NetworkStatus(&msgtypes.NetworkStatus{
+		Interfaces: netinfo,
+	})
 	for {
 		select {
 		case <-disconnect:
 			disconnectWaitGroup.Done()
 			return
 		case <-time.After(5 * time.Second):
+			// Send an update about the system status
 			// Not updating cores as they cannot change at runtime? (TODO: verify!)
 			sysinfo.UpdateMeminfo()
 			sysinfo.UpdateSysinfo()
 			SystemStatus(&msgtypes.SystemStatus{
+				Uptime:      sysinfo.System.Uptime,
 				MemoryUsage: sysinfo.Ram.Used,
+				MemoryMax:   sysinfo.Ram.Total,
 				Loads1:      sysinfo.System.Load[0],
 				Loads5:      sysinfo.System.Load[1],
 				Loads15:     sysinfo.System.Load[2],
@@ -310,21 +325,53 @@ func enqueue(msg *pb.StatusMessage) {
 	}
 }
 
+// -----------------------------------------------------------------------------
+
+// The system status and network status types are gathered automatically, as
+// such they use the less convenient, but easier maintainable interface
 func SystemStatus(msg *msgtypes.SystemStatus) {
 	enqueue(&pb.StatusMessage{SystemStatus: msg.ToPb()})
 }
-
 func NetworkStatus(msg *msgtypes.NetworkStatus) {
 	enqueue(&pb.StatusMessage{NetworkStatus: msg.ToPb()})
 }
 
-func PlannerStatus(msg *msgtypes.PlannerStatus) {
-	enqueue(&pb.StatusMessage{PlannerStatus: msg.ToPb()})
+// Two alternatives for planner status, the API conform version and the
+// multi-param version, the multi-param might be more acceptable by many ...
+// but is less nice too look at
+
+// func PlannerStatus(msg *msgtypes.PlannerStatus) {
+// 	enqueue(&pb.StatusMessage{PlannerStatus: msg.ToPb()})
+// }
+
+// Same goes for the service status ...
+
+// func ServiceStatus(msg *msgtypes.ServiceStatus) {
+// 	enqueue(&pb.StatusMessage{ServiceStatus: msg.ToPb()})
+// }
+
+func PlannerStatus(configProfileName string, logMessages []string, extraData [][]byte) {
+	enqueue(&pb.StatusMessage{PlannerStatus: (&msgtypes.PlannerStatus{
+		ConfigProfileName: configProfileName,
+		Logs:              logMessages,
+		ExtraData:         extraData,
+	}).ToPb()})
 }
 
-func ServiceStatus(msg *msgtypes.ServiceStatus) {
-	enqueue(&pb.StatusMessage{ServiceStatus: msg.ToPb()})
+func ServiceStatus(configProfileName string, logMessages []string, extraData [][]byte,
+	name string, port uint16, task string) {
+
+	enqueue(&pb.StatusMessage{ServiceStatus: (&msgtypes.ServiceStatus{
+		ConfigProfileName: configProfileName,
+		Name:              name,
+		Port:              port,
+		Task:              task,
+		Logs:              logMessages,
+		ExtraData:         extraData,
+	}).ToPb()})
 }
+
+// -----------------------------------------------------------------------------
 
 func IncomingControlMessages() chan *msgtypes.ControlMessage {
 	return controlMessageChannel

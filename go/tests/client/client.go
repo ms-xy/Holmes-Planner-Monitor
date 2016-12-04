@@ -29,30 +29,18 @@ func main() {
 		Connect:       true,
 	})
 	check(err)
-	// Create a component monitor
-	monitor.PlannerStatus(&msgtypes.PlannerStatus{
-		ConfigProfileName: "default",
-	})
+	// Send some planner status
+
+	// // Old method:
+	// monitor.PlannerStatus(&msgtypes.PlannerStatus{
+	// 	ConfigProfileName: "default",
+	// })
+
+	// // New method
+	monitor.PlannerStatus("default-config", []string{"Startup complete"}, nil)
 
 	for a := 0; a < 5; a++ {
-		go func(a int) {
-			monitor.ServiceStatus(&msgtypes.ServiceStatus{
-				ConfigProfileName: "Default_Config",
-				Name:              fmt.Sprintf("Service-%d", a),
-				Port:              uint16(7700 + a*10),
-			})
-		}(a)
-	}
-	time.Sleep(2 * time.Second)
-	for a := 0; a < 5; a++ {
-		go func(a int) {
-			monitor.ServiceStatus(&msgtypes.ServiceStatus{
-				ConfigProfileName: "Default_Config",
-				Name:              fmt.Sprintf("Service-%d", a),
-				Port:              uint16(7700 + a*10),
-				Task:              "hello_world",
-			})
-		}(a)
+		go service(a)
 	}
 
 	si, err := sysinfo.New()
@@ -65,4 +53,22 @@ func main() {
 
 	// monitor.Disconnect()
 	// time.Sleep(10 * time.Second)
+}
+
+func service(a int) {
+	for {
+		// // Old method
+		// monitor.ServiceStatus(&msgtypes.ServiceStatus{
+		// 	ConfigProfileName: "Default_Config",
+		// 	Name:              fmt.Sprintf("Service-%d", a),
+		// 	Port:              uint16(7700 + a*10),
+		//  Task:							 "hello_world",
+		// })
+
+		// // New method
+		monitor.ServiceStatus("default-config", nil, nil, fmt.Sprintf("service-%d", a), uint16(7700+a*10), "hello_world")
+
+		// send every 7 seconds
+		<-time.After(7 * time.Second)
+	}
 }
