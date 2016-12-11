@@ -8,15 +8,22 @@ import (
 	pb "github.com/ms-xy/Holmes-Planner-Monitor/protobuf/generated-go"
 
 	"errors"
+	"io/ioutil"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
-	// "fmt"
+
+	"strings"
 )
 
 var (
 	// Connection, addresses and a buffer for reading, its size set to exactly
 	// 65000
+	pid        = uint64(os.Getpid())
+	uuid       = msgtypes.UUID4Empty()
 	raddr      *net.UDPAddr
 	laddr      *net.UDPAddr
 	connection *net.UDPConn
@@ -93,18 +100,55 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		return err
 	}
 
+	// Get the uuid if it already exists
+	// TODO: make the location configurable
+	var (
+		// uuid_file_path string = "/var/cache/Holmes-Processing/uuid"
+		uuid_file_path string = "/var/tmp/holmes_processing_cache/uuid"
+	)
+
+	// Create the folder in /var/cache
+	err = os.MkdirAll(filepath.Dir(uuid_file_path), 0700)
+	if err != nil {
+		return err
+	}
+
+	// Use os.Stat() to determine whether or not the file exists (and is no dir)
+	if fi, err := os.Stat(uuid_file_path); err == nil {
+		if fi.IsDir() {
+			return errors.New(uuid_file_path + ": expected a file, found a directory")
+		}
+		bytes, err := ioutil.ReadFile(uuid_file_path)
+		if err != nil {
+			return err
+		}
+		if len(bytes) > 0 {
+			err := uuid.FromString(string(bytes))
+			if err != nil {
+				return errors.New(uuid_file_path + " contains a malformed uuid: " + err.Error())
+			}
+			logf(LogLevelDebug, "UUID=%s", uuid.ToString())
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	// Send planner info, expect reply with either matching uuid or new uuid.
 	// TODO: configuration option / parameter for number of retries and timeout
 	interval := 2 * time.Second
 	maxRetry := 10
 	logf(LogLevelDebug, "Attempt to connect to Holmes-Status, %d retries, %s timeout", maxRetry, interval.String())
 
 	msg := &pb.StatusMessage{PlannerInfo: info.ToPb()}
-	fn := func(msg *msgtypes.ControlMessage) bool {
-		return msg.AckConnect
+	fn := func(resp *msgtypes.ControlMessage) bool {
+		if resp.UUID.IsValid() {
+			uuid = resp.UUID
+		}
+		return resp.AckConnect
 	}
 	ackd, err = sendUntil(msg, fn, interval, maxRetry)
 
-	// if no acknowledge received, connection attempt has failed
+	// If no acknowledge was received, the connection attempt has failed.
 	if !ackd {
 		if err == nil {
 			// TODO: this line definitly needs an improvement
@@ -115,11 +159,19 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		stateTransition(StateConnecting, StateDisconnected)
 		return err
 	}
-	log(LogLevelDebug, "Status Server: Ack=True")
+	logf(LogLevelDebug, "Status Server: Ack=True, UUID=%s", uuid.ToString())
+
+	// Write uuid file
+	// TODO: what to do in case of different previous content in this file?
+	//       That would be a severe error ...
+	err = ioutil.WriteFile(uuid_file_path, []byte(uuid.ToString()), 0600)
+	if err != nil {
+		return err
+	}
 
 	// Create channels and launch incoming as well as outgoing message loops
-	// The quit channel is just a cheap throwaway channel to function as an easy
-	// interrupt for the connection loops
+	// The quit channel is just a cheap throwaway channel to interrupt the
+	// loops
 	statusMessageChannel = make(chan *pb.StatusMessage, 1000)
 	controlMessageChannel = make(chan *msgtypes.ControlMessage, 1000)
 	go statusMessageLoop()
@@ -166,12 +218,15 @@ func Disconnect() error {
 	// Close the connection and signal connection state
 	connection.Close()
 	stateTransition(StateDisconnecting, StateDisconnected)
+	log(LogLevelDebug, "Disconnected")
 	return nil
 }
 
 // -----------------------------------------------------------------------------
 
 func send(msg *pb.StatusMessage) error {
+	msg.PID = pid
+	msg.UUID = uuid.ToBytes()
 	bytes, err := proto.Marshal(msg)
 	if err == nil {
 		_, err = connection.Write(bytes)
@@ -235,17 +290,25 @@ func sendUntil(msg *pb.StatusMessage, fn func(*msgtypes.ControlMessage) bool, in
 // -----------------------------------------------------------------------------
 
 func statusMessageLoop() {
+	var err error
+
 	for {
 
 		select {
 		case <-disconnect:
+			log(LogLevelDebug, "++ Exit (statusMessageLoop)")
 			disconnectWaitGroup.Done()
 			return
 
 		case msg := <-statusMessageChannel:
-			send(msg)
-			// TODO: treat possible error return from send
-
+			if err = send(msg); err != nil {
+				if strings.Contains(err.Error(), "connection refused") {
+					log(LogLevelDebug, "-- Connection refused, disconnecting")
+					go Disconnect()
+				} else {
+					logf(LogLevelDebug, "-- Error sending control message: '%v'", err)
+				}
+			}
 		}
 	}
 }
@@ -255,20 +318,29 @@ func controlMessageLoop() {
 	// defer close(singleMsgChan) // TODO: close it, but needs to be done in recv
 
 	for {
+		if !connected {
+			log(LogLevelDebug, "++ Exit (controlMessageLoop)")
+			disconnectWaitGroup.Done()
+			return
+		}
+
 		go recv(singleMsgChan)
 
 		select {
 		case <-disconnect:
+			log(LogLevelDebug, "++ Exit (controlMessageLoop)")
 			disconnectWaitGroup.Done()
 			return
 
 		case r := <-singleMsgChan:
 			if r.err != nil {
-				// TODO handle error
-				logf(LogLevelDebug, "-- Error receiving control message: %v ;;; %v", r.err, r.msg)
-				continue
-			}
-			if r.msg != nil {
+				if strings.Contains(r.err.Error(), "connection refused") {
+					log(LogLevelDebug, "-- Connection refused, disconnecting")
+					go Disconnect()
+				} else {
+					logf(LogLevelDebug, "-- Error receiving control message: '%v'  %v", r.err, r.msg)
+				}
+			} else if r.msg != nil {
 				// if recv times out, (nil, nil) is returned
 				controlMessageChannel <- r.msg
 			}
@@ -284,6 +356,7 @@ func automaticStatusLoop() {
 		Uptime:      sysinfo.System.Uptime,
 		MemoryUsage: sysinfo.Ram.Used,
 		MemoryMax:   sysinfo.Ram.Total,
+		Harddrives:  sysinfo.Harddrives,
 		Loads1:      sysinfo.System.Load[0],
 		Loads5:      sysinfo.System.Load[1],
 		Loads15:     sysinfo.System.Load[2],
@@ -292,9 +365,11 @@ func automaticStatusLoop() {
 		Interfaces: netinfo,
 	})
 	i := 0
+	loopMax := 100
 	for {
 		select {
 		case <-disconnect:
+			log(LogLevelDebug, "++ Exit (automaticStatusLoop)")
 			disconnectWaitGroup.Done()
 			return
 		case <-time.After(5 * time.Second):
@@ -303,22 +378,29 @@ func automaticStatusLoop() {
 			// TODO: treat potential errors returned from both functions
 			sysinfo.UpdateMeminfo()
 			sysinfo.UpdateSysinfo()
+			if i%4 == 0 {
+				sysinfo.UpdateDiskinfo()
+			}
 			systemStatus(&msgtypes.SystemStatus{
 				Uptime:      sysinfo.System.Uptime,
 				MemoryUsage: sysinfo.Ram.Used,
 				MemoryMax:   sysinfo.Ram.Total,
+				Harddrives:  sysinfo.Harddrives,
 				Loads1:      sysinfo.System.Load[0],
 				Loads5:      sysinfo.System.Load[1],
 				Loads15:     sysinfo.System.Load[2],
 			})
-			if i == 3 {
+			if i%4 == 0 {
 				// TODO: treat potential error
 				netinfo, _ = Netinfo.Get()
 				networkStatus(&msgtypes.NetworkStatus{
 					Interfaces: netinfo,
 				})
 			}
-			i = (i + 1) % 4
+			if i%100 == 0 {
+				debug.FreeOSMemory()
+			}
+			i = (i + 1) % loopMax
 		}
 	}
 }
@@ -327,12 +409,14 @@ func automaticStatusLoop() {
 
 func enqueue(msg *pb.StatusMessage) {
 	if !connected {
+		log(LogLevelDebug, "++ Deny (enqueue)")
 		return
 	}
 	select {
 	case <-disconnect:
 		// in case the queue is full when connection is terminated to avoid
 		// orphaned goroutines lingering around, as well as panics, return
+		log(LogLevelDebug, "++ Exit (enqueue)")
 		return
 	case statusMessageChannel <- msg:
 	}

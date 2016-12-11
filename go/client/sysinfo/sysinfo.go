@@ -8,8 +8,8 @@
 package sysinfo
 
 import (
+	"github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
 	"sync"
-	// "time"
 )
 
 type Sysinfo struct {
@@ -35,6 +35,8 @@ type Sysinfo struct {
 		Available uint64
 		Used      uint64
 	}
+
+	Harddrives []*msgtypes.Harddrive
 }
 
 func New() (*Sysinfo, error) {
@@ -43,15 +45,20 @@ func New() (*Sysinfo, error) {
 
 	// for initialization run updates in parallel
 	var (
-		err_meminfo error
-		err_cpuinfo error
-		err_sysinfo error
-		wg          = &sync.WaitGroup{}
+		err_meminfo  error
+		err_diskinfo error
+		err_cpuinfo  error
+		err_sysinfo  error
+		wg           = &sync.WaitGroup{}
 	)
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		err_meminfo = si.UpdateMeminfo()
+	}()
+	go func() {
+		defer wg.Done()
+		err_diskinfo = si.UpdateDiskinfo()
 	}()
 	go func() {
 		defer wg.Done()
@@ -68,6 +75,9 @@ func New() (*Sysinfo, error) {
 		var errmsg string = ""
 		if err_meminfo != nil {
 			errmsg = errmsg + "Error updating meminfo: " + err_meminfo.Error()
+		}
+		if err_diskinfo != nil {
+			errmsg = errmsg + "Error updating diskinfo: " + err_diskinfo.Error()
 		}
 		if err_cpuinfo != nil {
 			errmsg = errmsg + "Error updating cpuinfo: " + err_cpuinfo.Error()

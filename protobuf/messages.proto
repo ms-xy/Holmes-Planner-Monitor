@@ -15,6 +15,13 @@ option java_outer_classname = "StatusMessagesProtobuf";
 //
 
 message StatusMessage {
+  // the PID is used for planner identification, it is not reliable in case of
+  // planner restarts, but persistent across disconnects without restarts
+  uint64 PID = 5;
+  // the UUID is used for machine identification, it is reliable and supposed to
+  // be persistent across reboots
+  bytes UUID = 6;
+
   // for the initial message, high number, we only send this upon initialization
   // of the connection (identifiers 1-15 use 1 byte, 16-2047 2 bytes)
   PlannerInfo plannerInfo = 2048;
@@ -31,7 +38,7 @@ message PlannerInfo {
   // ipAddress is the interface that the planner is listening on
   // port is the port that the planner is listening on
   string name          = 1;
-  string listenAddress = 2;
+  string listenAddress = 3;
 
   // if a client choses to disconnect, the server should not mistake this as
   // an error but rather remove the client from its client cachex
@@ -53,12 +60,12 @@ message SystemStatus {
 
   uint64 memoryUsage = 3;
   uint64 memoryMax   = 4;
-  uint64 diskUsage   = 5;
-  uint64 diskMax     = 6;
 
-  double Loads1      = 7;
-  double Loads5      = 8;
-  double Loads15     = 9;
+  repeated Harddrive harddrives = 5;
+
+  double Loads1      = 6;
+  double Loads5      = 7;
+  double Loads15     = 8;
 }
 
 message NetworkStatus {
@@ -88,6 +95,14 @@ message ServiceStatus {
 // Status helpers.
 //
 
+message Harddrive {
+  string fsType     = 1;
+  string mountPoint = 2;
+  uint64 used       = 3;
+  uint64 total      = 4;
+  uint64 free       = 5;
+}
+
 message NetworkInterface {
   int32  id         = 1;
   string name       = 2;
@@ -112,6 +127,9 @@ message StatusKvPair {
 //
 
 message ControlMessage {
+  // The UUID payload is important for client (re-)identification.
+  bytes uuid = 1;
+
   // Ack type responses are only for rarely sent messages (like planner info
   // which is only sent once at the start of a connection and is required by
   // the planner to know whether or not he's actually communicating with a

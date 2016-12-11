@@ -9,8 +9,6 @@ import (
 	"net"
 	// "sync/atomic" // atomic.AddUint64(&last_client_id, 1)
 	"time"
-
-	"fmt"
 )
 
 var (
@@ -50,17 +48,17 @@ func ListenAndServe(httpbinding string, statusrouter StatusRouter) error {
 }
 
 type StatusRouter interface {
-	RecvPlannerInfo(plannerinfo *types.PlannerInfo, client *Session, isnew bool) *types.ControlMessage
-	RecvSystemStatus(systemstatus *types.SystemStatus, client *Session, isnew bool) *types.ControlMessage
-	RecvNetworkStatus(networkstatus *types.NetworkStatus, client *Session, isnew bool) *types.ControlMessage
-	RecvPlannerStatus(plannerstatus *types.PlannerStatus, client *Session, isnew bool) *types.ControlMessage
-	RecvServiceStatus(servicestatus *types.ServiceStatus, client *Session, isnew bool) *types.ControlMessage
-	HandleError(err error, client *Session, isnew bool)
+	RecvPlannerInfo(plannerinfo *types.PlannerInfo, client *Session, pid uint64) *types.ControlMessage
+	RecvSystemStatus(systemstatus *types.SystemStatus, client *Session, pid uint64) *types.ControlMessage
+	RecvNetworkStatus(networkstatus *types.NetworkStatus, client *Session, pid uint64) *types.ControlMessage
+	RecvPlannerStatus(plannerstatus *types.PlannerStatus, client *Session, pid uint64) *types.ControlMessage
+	RecvServiceStatus(servicestatus *types.ServiceStatus, client *Session, pid uint64) *types.ControlMessage
+	HandleError(err error, client *Session, pid uint64)
 }
 
 type AddressedStatusMessage struct {
 	Address *net.UDPAddr
-	Message *pb.StatusMessage
+	Message *types.StatusMessage
 }
 
 type AddressedControlMessage struct {
@@ -92,25 +90,26 @@ func dispatcher() {
 
 			if asm.Message.ServiceStatus != nil {
 				session.Last.ServiceStatus = now
-				cmsg = router.RecvServiceStatus((&types.ServiceStatus{}).FromPb(asm.Message.ServiceStatus), session, isnew)
+				cmsg = router.RecvServiceStatus(asm.Message.ServiceStatus, session, asm.Message.PID)
 
 			} else if asm.Message.PlannerStatus != nil {
 				session.Last.PlannerStatus = now
-				cmsg = router.RecvPlannerStatus((&types.PlannerStatus{}).FromPb(asm.Message.PlannerStatus), session, isnew)
+				cmsg = router.RecvPlannerStatus(asm.Message.PlannerStatus, session, asm.Message.PID)
 
 			} else if asm.Message.SystemStatus != nil {
 				session.Last.SystemStatus = now
-				cmsg = router.RecvSystemStatus((&types.SystemStatus{}).FromPb(asm.Message.SystemStatus), session, isnew)
+				cmsg = router.RecvSystemStatus(asm.Message.SystemStatus, session, asm.Message.PID)
 
 			} else if asm.Message.NetworkStatus != nil {
 				session.Last.NetworkStatus = now
-				cmsg = router.RecvNetworkStatus((&types.NetworkStatus{}).FromPb(asm.Message.NetworkStatus), session, isnew)
+				cmsg = router.RecvNetworkStatus(asm.Message.NetworkStatus, session, asm.Message.PID)
 
 			} else if asm.Message.PlannerInfo != nil {
-				cmsg = router.RecvPlannerInfo((&types.PlannerInfo{}).FromPb(asm.Message.PlannerInfo), session, isnew)
+				cmsg = router.RecvPlannerInfo(asm.Message.PlannerInfo, session, asm.Message.PID)
 			}
 
 			if cmsg != nil {
+				cmsg.UUID = session.GetUuid()
 				outQueue <- AddressedControlMessage{asm.Address, cmsg}
 			}
 		}(asm)
@@ -127,23 +126,26 @@ func receiver() {
 		err       error
 		pkgbuffer []byte = make([]byte, 0xfde8) // buffer of size 65000
 		buffer    []byte
+		msg       *pb.StatusMessage
 		asm       AddressedStatusMessage
 	)
 	for {
 		n, addr, err = connection.ReadFromUDP(pkgbuffer)
-		// init asm up here already as error handling requires the sender address
-		asm = AddressedStatusMessage{Message: &pb.StatusMessage{}}
-		asm.Address = addr
 		if err != nil {
 			// TODO error log == read error (push to router too)
 			continue
 		}
 		buffer = make([]byte, n)
 		copy(buffer, pkgbuffer[0:n])
-		err = proto.Unmarshal(buffer, asm.Message)
+		msg = &pb.StatusMessage{}
+		err = proto.Unmarshal(buffer, msg)
 		if err != nil {
 			// TODO error log == invalid message (push to router too)
 			continue
+		}
+		asm = AddressedStatusMessage{
+			Message: (&types.StatusMessage{}).FromPb(msg),
+			Address: addr,
 		}
 		inQueue <- asm
 	}
@@ -159,7 +161,6 @@ func sender() {
 	)
 	for {
 		acm = <-outQueue
-		fmt.Println("-- sending control message: ", acm)
 		bytes, err = proto.Marshal(acm.Message.ToPb())
 		if err != nil {
 			// oops? log? (push to router too)

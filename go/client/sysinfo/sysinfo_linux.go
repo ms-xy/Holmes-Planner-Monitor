@@ -9,9 +9,9 @@ import "C"
 import (
 	"errors"
 	"github.com/c9s/goprocinfo/linux"
+	"github.com/ms-xy/Holmes-Planner-Monitor/go/client/diskinfo"
 	"io/ioutil"
 	"syscall"
-	// "time"
 )
 
 // Pretty fast (200ns). However, inaccuracy of memory values renders it useless
@@ -139,6 +139,18 @@ func (this *Sysinfo) UpdateCpuinfo() error {
 	}
 
 	this.Cpu.Cores = ci.NumCPU()
+
+	return nil
+}
+
+// Update the harddrive information of the system.
+func (this *Sysinfo) UpdateDiskinfo() error {
+	harddrives, err := diskinfo.Get()
+	if err != nil {
+		return err
+	}
+
+	this.Harddrives = harddrives
 
 	return nil
 }

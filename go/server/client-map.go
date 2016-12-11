@@ -3,8 +3,7 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
-	// "github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
+	"github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
 	"net"
 	"sync"
 	"time"
@@ -16,13 +15,13 @@ import (
 type Session struct {
 	sync.Mutex
 
-	id            uint64
-	addrKey       [18]byte
-	listenAddrKey [18]byte
+	// id      uint64
+	// addrKey [18]byte
+	uuid *msgtypes.UUID
 
-	address       *net.UDPAddr
-	listenAddress *net.TCPAddr // TODO: implement in all the functions (especially parsers)
-	_close        bool
+	Address *net.UDPAddr
+	// ListenAddress *net.TCPAddr
+	_close bool
 
 	FirstSeen time.Time
 	LastSeen  time.Time
@@ -46,13 +45,19 @@ func (c *Session) init() {
 //
 // Getters for some of the non public fields
 //
-func (c *Session) GetID() uint64 {
-	return c.id
+// func (c *Session) GetID() uint64 {
+// 	return c.id
+// }
+
+func (c *Session) GetUuid() *msgtypes.UUID {
+	return c.uuid
 }
 
-func (c *Session) GetAddress() *net.UDPAddr {
-	return c.address
-}
+// func (c *Session) GetAddrKey() [18]byte {
+// 	r := [18]byte{}
+// 	copy(r[:], c.addrKey[:])
+// 	return r
+// }
 
 //
 // Close a session (dispatcher will enforce a removal in that case)
@@ -90,19 +95,21 @@ func NewSessionMap() *SessionMap {
 	return &SessionMap{
 		// TODO: what to do if we *ever* reach maximum uint64? is that of any
 		// concern even?
-		id_next:           1,
-		map_addr2id:       make(map[[18]byte]uint64),
-		map_listenAddr2id: make(map[[18]byte]uint64),
-		map_id2session:    make(map[uint64]*Session),
+		// id_next: 1,
+		// map_addr2id:    make(map[[18]byte]uint64),
+		// map_uuid2id:    make(map[msgtypes.UUID]uint64),
+		// map_id2session: make(map[uint64]*Session),
+		map_uuid2session: make(map[msgtypes.UUID]*Session),
 	}
 }
 
 type SessionMap struct {
 	sync.Mutex
-	id_next           uint64
-	map_addr2id       map[[18]byte]uint64
-	map_listenAddr2id map[[18]byte]uint64
-	map_id2session    map[uint64]*Session
+	id_next          uint64
+	map_uuid2session map[msgtypes.UUID]*Session
+	// map_addr2id      map[[18]byte]uint64
+	// map_uuid2id      map[msgtypes.UUID]uint64
+	// map_id2session   map[uint64]*Session
 }
 
 // Check whether a session exists for the client. If not create a new one.
@@ -111,56 +118,82 @@ type SessionMap struct {
 func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool) {
 	this.Lock()
 	defer this.Unlock()
+
 	var (
-		session *Session
-		id      uint64
-		exists  bool
+	// session *Session
+	// id      uint64
+	// exists  bool
+	// err     error
 	)
-	// calculate the master key first
-	addrKey := addr2bytemap18key(asm.Address.IP, asm.Address.Port)
-	listenAddrKey, lak_provided := extractListenAddrKey(asm)
-	if lak_provided && !bytemap18key_IP_equal(addrKey, listenAddrKey) {
-		// TODO: potential fatal error, node may be pretending to be someone else? (misconfiguration? etc?)
-	}
 
-	if id, exists = this.map_addr2id[addrKey]; exists {
-		session = this.map_id2session[id]
-		if lak_provided && !bytemap18key_equal(session.listenAddrKey, listenAddrKey) {
-			// update potential old entry in listenAddrKey map
-			delete(this.map_listenAddr2id, session.listenAddrKey)
-			this.map_listenAddr2id[listenAddrKey] = session.id
-		}
-
-	} else if lak_provided {
-		if id, exists = this.map_listenAddr2id[listenAddrKey]; exists {
-			session = this.map_id2session[id]
-			// update potential old entry in addrKey map
-			if !bytemap18key_equal(session.addrKey, addrKey) {
-				delete(this.map_addr2id, addrKey)
-				this.map_addr2id[addrKey] = session.id
+	// since we abandoned the multiple key approach, we can now simply check if
+	// we already know the uuid or not, previously we had to rely on the IP as
+	// well as a second identifier
+	uuid := asm.Message.UUID
+	// if the supplied uuid is not valid, recreate it automatically
+	if !uuid.IsValid() {
+		var err error
+		for {
+			uuid, err = msgtypes.UUID4()
+			if err != nil {
+				continue // TODO: better solution here? should we panic?
+			}
+			if _, exists := this.map_uuid2session[*uuid]; !exists {
+				break
 			}
 		}
 	}
-
-	if session == nil { // -> !exists -> is new
-		fmt.Println("-- new addrKey and listenAddrKey")
-		fmt.Println("\t", addrKey)
-		fmt.Println("\t", listenAddrKey)
-		id = this.id_next
-		this.id_next++
-		// create a new session object as the client seems to be unknown
-		session = &Session{}
-		this.map_addr2id[addrKey] = id
-		this.map_id2session[id] = session
-		// update lak map
-		if lak_provided {
-			this.map_listenAddr2id[listenAddrKey] = id
+	session, exists := this.map_uuid2session[*uuid]
+	if !exists {
+		session = &Session{
+			uuid: uuid,
 		}
+		this.map_uuid2session[*uuid] = session
 	}
 
-	session.id = id
-	session.addrKey = addrKey
-	session.listenAddrKey = listenAddrKey
+	// calculate both keys
+	// addrKey := addr2bytemap18key(asm.Address.IP, asm.Address.Port)
+	// uuid, uuid_provided := extractUuid(asm)
+
+	// check uuid first, it is the stronger identifier
+	// if uuid_provided {
+	// 	if id, exists = this.map_uuid2id[uuid]; exists {
+	// 		session = this.map_id2session[id]
+	// 		// if an old entry exists, eliminate
+	// 		if !bytemap18key_equal(session.addrKey, addrKey) {
+	// 			delete(this.map_addr2id, addrKey)
+	// 			this.map_addr2id[addrKey] = session.id
+	// 		}
+	// 	}
+
+	// } else if id, exists = this.map_addr2id[addrKey]; exists {
+	// 	session = this.map_id2session[id]
+	// 	uuid = session.uuid
+	// }
+
+	// if !exists {
+	// 	id = this.id_next
+	// 	this.id_next++
+	// 	// if no uuid is given, create a new uuid
+	// 	if !uuid_provided {
+	// 		uuid, err = msgtypes.Uuid4()
+	// 		if err != nil {
+	// 			panic(err) // fatal error, cannot read from rand.Reader
+	// 			// TODO: do this differently maybe?
+	// 			// A panic here kills the dispatcher loop ... not very "gracefully"
+	// 		}
+	// 	}
+	// 	// create a new session object as the client seems to be unknown
+	// 	session = &Session{}
+	// 	this.map_addr2id[addrKey] = id
+	// 	this.map_uuid2id[uuid] = id
+	// 	this.map_id2session[id] = session
+	// }
+
+	// session.id = id
+	// session.uuid = uuid
+	// session.addrKey = addrKey
+	session.Address = asm.Address
 
 	return session, !exists
 }
@@ -169,15 +202,26 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 func (this *SessionMap) Remove(session *Session) {
 	this.Lock()
 	this.Unlock()
-	delete(this.map_id2session, session.id)
-	delete(this.map_addr2id, session.addrKey)
-	delete(this.map_listenAddr2id, session.listenAddrKey)
+	// delete(this.map_id2session, session.id)
+	// delete(this.map_addr2id, session.addrKey)
+	// delete(this.map_uuid2id, session.uuid)
+	delete(this.map_uuid2session, *session.uuid)
 }
 
 // Get a session by its ID
-func (this *SessionMap) Get(id uint64) (*Session, bool) {
-	session, exists := this.map_id2session[id]
+// func (this *SessionMap) Get(id uint64) (*Session, bool) {
+// 	session, exists := this.map_id2session[id]
+// 	return session, exists
+// }
+
+// Get a session by its uuid
+func (this *SessionMap) GetByUuid(uuid *msgtypes.UUID) (*Session, bool) {
+	session, exists := this.map_uuid2session[*uuid]
 	return session, exists
+	// if id, exists := this.map_uuid2id[uuid]; exists {
+	// 	return this.Get(id)
+	// }
+	// return nil, false
 }
 
 // Loop over all sessions in the session storage and execute the function fn for
@@ -185,9 +229,14 @@ func (this *SessionMap) Get(id uint64) (*Session, bool) {
 func (this *SessionMap) ForEach(fn func(*Session)) {
 	this.Lock()
 	defer this.Unlock()
-	for _, s := range this.map_id2session {
+	for _, s := range this.map_uuid2session {
 		fn(s)
 	}
+}
+
+// Get the size of the session object map
+func (this *SessionMap) Size() int {
+	return len(this.map_uuid2session)
 }
 
 // -----------------------------------------------------------------------------
@@ -241,12 +290,18 @@ func bytemap18key_IP_equal(a, b [18]byte) bool {
 	return true
 }
 
-func extractListenAddrKey(asm AddressedStatusMessage) ([18]byte, bool) {
-	var listenAddrKey [18]byte
-	if asm.Message.PlannerInfo != nil && asm.Message.PlannerInfo.ListenAddress != "" {
-		listenAddr, _ := net.ResolveTCPAddr("tcp", asm.Message.PlannerInfo.ListenAddress)
-		listenAddrKey = addr2bytemap18key(listenAddr.IP, listenAddr.Port)
-		return listenAddrKey, true
+func extractListenAddr(asm AddressedStatusMessage) (listenAddr *net.TCPAddr, exists bool) {
+	if asm.Message.PlannerInfo != nil && asm.Message.PlannerInfo.ListenAddress != nil {
+		listenAddr = asm.Message.PlannerInfo.ListenAddress
+		exists = listenAddr != nil
 	}
-	return listenAddrKey, false
+	return
+}
+
+func extractUuid(asm AddressedStatusMessage) (uuid *msgtypes.UUID, exists bool) {
+	if asm.Message.PlannerInfo != nil {
+		uuid = asm.Message.UUID
+		exists = uuid.IsValid()
+	}
+	return
 }

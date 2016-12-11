@@ -7,6 +7,58 @@ import (
 
 // -----------------------------------------------------------------------------
 
+type StatusMessage struct {
+	PID           uint64
+	UUID          *UUID
+	PlannerInfo   *PlannerInfo
+	SystemStatus  *SystemStatus
+	NetworkStatus *NetworkStatus
+	PlannerStatus *PlannerStatus
+	ServiceStatus *ServiceStatus
+}
+
+func (this *StatusMessage) FromPb(o *pb.StatusMessage) *StatusMessage {
+	this.PID = o.PID
+	this.UUID = UUID4Empty()
+	if err := this.UUID.FromBytes(o.UUID); err != nil {
+		panic(err) // TODO: is there a better way than to panic?
+	}
+	if o.PlannerInfo != nil {
+		this.PlannerInfo = (&PlannerInfo{}).FromPb(o.PlannerInfo)
+	} else if o.SystemStatus != nil {
+		this.SystemStatus = (&SystemStatus{}).FromPb(o.SystemStatus)
+	} else if o.NetworkStatus != nil {
+		this.NetworkStatus = (&NetworkStatus{}).FromPb(o.NetworkStatus)
+	} else if o.PlannerStatus != nil {
+		this.PlannerStatus = (&PlannerStatus{}).FromPb(o.PlannerStatus)
+	} else if o.ServiceStatus != nil {
+		this.ServiceStatus = (&ServiceStatus{}).FromPb(o.ServiceStatus)
+	}
+	return this
+}
+
+func (this *StatusMessage) ToPb() *pb.StatusMessage {
+	if this.UUID == nil {
+		this.UUID = UUID4Empty()
+	}
+	o := &pb.StatusMessage{
+		PID:  this.PID,
+		UUID: this.UUID.ToBytes(),
+	}
+	if this.PlannerInfo != nil {
+		o.PlannerInfo = this.PlannerInfo.ToPb()
+	} else if this.SystemStatus != nil {
+		o.SystemStatus = this.SystemStatus.ToPb()
+	} else if this.NetworkStatus != nil {
+		o.NetworkStatus = this.NetworkStatus.ToPb()
+	} else if this.ServiceStatus != nil {
+		o.ServiceStatus = this.ServiceStatus.ToPb()
+	}
+	return o
+}
+
+// -----------------------------------------------------------------------------
+
 type PlannerInfo struct {
 	Name          string
 	ListenAddress *net.TCPAddr
@@ -46,8 +98,8 @@ type SystemStatus struct {
 
 	MemoryUsage uint64
 	MemoryMax   uint64
-	DiskUsage   uint64
-	DiskMax     uint64
+
+	Harddrives []*Harddrive
 
 	Loads1  float64 // System load as reported by sysinfo syscall
 	Loads5  float64
@@ -60,8 +112,17 @@ func (this *SystemStatus) FromPb(o *pb.SystemStatus) *SystemStatus {
 
 	this.MemoryUsage = o.MemoryUsage
 	this.MemoryMax = o.MemoryMax
-	this.DiskUsage = o.DiskUsage
-	this.DiskMax = o.DiskMax
+
+	this.Harddrives = make([]*Harddrive, len(o.Harddrives))
+	for i := 0; i < len(o.Harddrives); i++ {
+		this.Harddrives[i] = &Harddrive{
+			FsType:     o.Harddrives[i].FsType,
+			MountPoint: o.Harddrives[i].MountPoint,
+			Used:       o.Harddrives[i].Used,
+			Total:      o.Harddrives[i].Total,
+			Free:       o.Harddrives[i].Free,
+		}
+	}
 
 	this.Loads1 = o.Loads1
 	this.Loads5 = o.Loads5
@@ -70,19 +131,28 @@ func (this *SystemStatus) FromPb(o *pb.SystemStatus) *SystemStatus {
 }
 
 func (this *SystemStatus) ToPb() *pb.SystemStatus {
-	return &pb.SystemStatus{
+	o := &pb.SystemStatus{
 		Uptime:      uint64(this.Uptime),
 		LoadPercent: this.LoadPercent,
 
 		MemoryUsage: this.MemoryUsage,
 		MemoryMax:   this.MemoryMax,
-		DiskUsage:   this.DiskUsage,
-		DiskMax:     this.DiskMax,
 
 		Loads1:  this.Loads1,
 		Loads5:  this.Loads5,
 		Loads15: this.Loads15,
 	}
+	o.Harddrives = make([]*pb.Harddrive, len(this.Harddrives))
+	for i := 0; i < len(this.Harddrives); i++ {
+		o.Harddrives[i] = &pb.Harddrive{
+			FsType:     this.Harddrives[i].FsType,
+			MountPoint: this.Harddrives[i].MountPoint,
+			Used:       this.Harddrives[i].Used,
+			Total:      this.Harddrives[i].Total,
+			Free:       this.Harddrives[i].Free,
+		}
+	}
+	return o
 }
 
 type NetworkStatus struct {
@@ -175,6 +245,14 @@ func (this *ServiceStatus) ToPb() *pb.ServiceStatus {
 
 // -----------------------------------------------------------------------------
 
+type Harddrive struct {
+	FsType     string
+	MountPoint string
+	Used       uint64
+	Total      uint64
+	Free       uint64
+}
+
 type NetworkInterface struct {
 	ID        int
 	Name      string
@@ -192,12 +270,15 @@ type StatusKvPair struct {
 // -----------------------------------------------------------------------------
 
 type ControlMessage struct {
+	UUID          *UUID
 	AckConnect    bool
 	AckDisconnect bool
 	ExtraData     [][]byte
 }
 
 func (this *ControlMessage) FromPb(o *pb.ControlMessage) *ControlMessage {
+	this.UUID = UUID4Empty()
+	this.UUID.FromBytes(o.Uuid)
 	this.AckConnect = o.AckConnect
 	this.AckDisconnect = o.AckDisconnect
 	this.ExtraData = o.ExtraData
@@ -205,7 +286,11 @@ func (this *ControlMessage) FromPb(o *pb.ControlMessage) *ControlMessage {
 }
 
 func (this *ControlMessage) ToPb() *pb.ControlMessage {
+	if this.UUID == nil {
+		this.UUID = UUID4Empty()
+	}
 	return &pb.ControlMessage{
+		Uuid:          this.UUID.ToBytes(),
 		AckConnect:    this.AckConnect,
 		AckDisconnect: this.AckDisconnect,
 		ExtraData:     this.ExtraData,
