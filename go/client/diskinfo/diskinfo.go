@@ -89,24 +89,26 @@ func run_df_cmd() (string, error) {
 	// The size is reported in 1024 byte blocks.
 	cmd := exec.Command("df")
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return "", err
-	}
-	stdin.Close()
+	// stdin, err := cmd.StdinPipe()
+	// if err != nil {
+	// 	return "", err
+	// }
+	// stdin.Close()
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
+	// stdout, err := cmd.StdoutPipe()
+	// if err != nil {
+	// 	return "", err
+	// }
 
-	cmd.Start()
+	// cmd.Start()
 
-	buf := make([]byte, 0x8000) // ~32KiB should be enough
-	n, err := stdout.Read(buf)
-	if err != nil {
-		return "", err
-	}
+	// buf := make([]byte, 0x8000) // ~32KiB should be enough
+	// n, err := stdout.Read(buf)
+	// if err != nil {
+	// 	return "", err
+	// }
 
-	return string(buf[:n]), nil
+	output, err := cmd.Output()
+
+	return string(output), err
 }
