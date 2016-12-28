@@ -56,16 +56,22 @@ message PlannerInfo {
 
 message SystemStatus {
   uint64 uptime      = 1;
-  double loadPercent = 2;
 
-  uint64 memoryUsage = 3;
-  uint64 memoryMax   = 4;
+  uint64 cpuIOWait   = 2;
+  uint64 cpuIdle     = 3;
+  uint64 cpuBusy     = 4;
+  uint64 cpuTotal    = 5;
 
-  repeated Harddrive harddrives = 5;
+  uint64 memoryUsage = 6;
+  uint64 memoryMax   = 7;
+  uint64 swapUsage   = 8;
+  uint64 swapMax     = 9;
 
-  double Loads1      = 6;
-  double Loads5      = 7;
-  double Loads15     = 8;
+  repeated Harddrive harddrives = 10;
+
+  double Loads1      = 11;
+  double Loads5      = 12;
+  double Loads15     = 13;
 }
 
 message NetworkStatus {

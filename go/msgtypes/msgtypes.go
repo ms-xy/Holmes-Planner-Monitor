@@ -93,11 +93,17 @@ func (this *PlannerInfo) ToPb() *pb.PlannerInfo {
 // -----------------------------------------------------------------------------
 
 type SystemStatus struct {
-	Uptime      int64
-	LoadPercent float64 // Average load of all cpus during the last 1 second
+	Uptime int64
+
+	CpuIOWait uint64
+	CpuIdle   uint64
+	CpuBusy   uint64
+	CpuTotal  uint64
 
 	MemoryUsage uint64
 	MemoryMax   uint64
+	SwapUsage   uint64
+	SwapMax     uint64
 
 	Harddrives []*Harddrive
 
@@ -108,10 +114,16 @@ type SystemStatus struct {
 
 func (this *SystemStatus) FromPb(o *pb.SystemStatus) *SystemStatus {
 	this.Uptime = int64(o.Uptime)
-	this.LoadPercent = o.LoadPercent
+
+	this.CpuIOWait = o.CpuIOWait
+	this.CpuIdle = o.CpuIdle
+	this.CpuBusy = o.CpuBusy
+	this.CpuTotal = o.CpuTotal
 
 	this.MemoryUsage = o.MemoryUsage
 	this.MemoryMax = o.MemoryMax
+	this.SwapUsage = o.SwapUsage
+	this.SwapMax = o.SwapMax
 
 	this.Harddrives = make([]*Harddrive, len(o.Harddrives))
 	for i := 0; i < len(o.Harddrives); i++ {
@@ -132,11 +144,17 @@ func (this *SystemStatus) FromPb(o *pb.SystemStatus) *SystemStatus {
 
 func (this *SystemStatus) ToPb() *pb.SystemStatus {
 	o := &pb.SystemStatus{
-		Uptime:      uint64(this.Uptime),
-		LoadPercent: this.LoadPercent,
+		Uptime: uint64(this.Uptime),
+
+		CpuIOWait: this.CpuIOWait,
+		CpuIdle:   this.CpuIdle,
+		CpuBusy:   this.CpuBusy,
+		CpuTotal:  this.CpuTotal,
 
 		MemoryUsage: this.MemoryUsage,
 		MemoryMax:   this.MemoryMax,
+		SwapUsage:   this.SwapUsage,
+		SwapMax:     this.SwapMax,
 
 		Loads1:  this.Loads1,
 		Loads5:  this.Loads5,

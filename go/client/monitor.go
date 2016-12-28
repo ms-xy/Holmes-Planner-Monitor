@@ -81,6 +81,7 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 
 	logf(LogLevelDebug, "Initializing sysinfo")
 	sysinfo, err = Sysinfo.New()
+	sysinfo.StartUpdate(1 * time.Second)
 	if err != nil {
 		return err
 	}
@@ -352,18 +353,33 @@ func controlMessageLoop() {
 // -----------------------------------------------------------------------------
 
 func automaticStatusLoop() {
-	systemStatus(&msgtypes.SystemStatus{
-		Uptime:      sysinfo.System.Uptime,
-		MemoryUsage: sysinfo.Ram.Used,
-		MemoryMax:   sysinfo.Ram.Total,
-		Harddrives:  sysinfo.Harddrives,
-		Loads1:      sysinfo.System.Load[0],
-		Loads5:      sysinfo.System.Load[1],
-		Loads15:     sysinfo.System.Load[2],
-	})
-	networkStatus(&msgtypes.NetworkStatus{
-		Interfaces: netinfo,
-	})
+	_send := func(sysinfo *Sysinfo.Sysinfo, netinfo []*msgtypes.NetworkInterface) {
+		systemStatus(&msgtypes.SystemStatus{
+			Uptime: sysinfo.System.Uptime,
+
+			CpuIOWait: sysinfo.Cpu.IOWait,
+			CpuIdle:   sysinfo.Cpu.Idle,
+			CpuBusy:   sysinfo.Cpu.Busy,
+			CpuTotal:  sysinfo.Cpu.Total,
+
+			MemoryUsage: sysinfo.Ram.Used,
+			MemoryMax:   sysinfo.Ram.Total,
+			SwapUsage:   sysinfo.Swap.Used,
+			SwapMax:     sysinfo.Swap.Total,
+
+			Harddrives: sysinfo.Harddrives,
+
+			Loads1:  sysinfo.System.Load[0],
+			Loads5:  sysinfo.System.Load[1],
+			Loads15: sysinfo.System.Load[2],
+		})
+		networkStatus(&msgtypes.NetworkStatus{
+			Interfaces: netinfo,
+		})
+	}
+	// send initial system and network status messages
+	_send(sysinfo, netinfo)
+	// regular updates (every second)
 	i := 0
 	loopMax := 100
 	for {
@@ -372,32 +388,14 @@ func automaticStatusLoop() {
 			log(LogLevelDebug, "++ Exit (automaticStatusLoop)")
 			disconnectWaitGroup.Done()
 			return
-		case <-time.After(5 * time.Second):
-			// Send an update about the system status
-			// Not updating cores as they cannot change at runtime? (TODO: verify!)
-			// TODO: treat potential errors returned from both functions
-			sysinfo.UpdateMeminfo()
-			sysinfo.UpdateSysinfo()
-			if i%4 == 0 {
-				sysinfo.UpdateDiskinfo()
-			}
-			systemStatus(&msgtypes.SystemStatus{
-				Uptime:      sysinfo.System.Uptime,
-				MemoryUsage: sysinfo.Ram.Used,
-				MemoryMax:   sysinfo.Ram.Total,
-				Harddrives:  sysinfo.Harddrives,
-				Loads1:      sysinfo.System.Load[0],
-				Loads5:      sysinfo.System.Load[1],
-				Loads15:     sysinfo.System.Load[2],
-			})
-			if i%4 == 0 {
-				// TODO: treat potential error
-				netinfo, _ = Netinfo.Get()
-				networkStatus(&msgtypes.NetworkStatus{
-					Interfaces: netinfo,
-				})
-			}
-			if i%100 == 0 {
+		case <-time.After(1 * time.Second):
+			// TODO: treat potential error by NetInfo.Get()
+			netinfo, _ = Netinfo.Get()
+			// publish update
+			_send(sysinfo, netinfo)
+			// only execute the expensive global free every "loopMax" cycles
+			// basically results in a good memory balance and overall cheap cycles
+			if i%loopMax == 0 {
 				debug.FreeOSMemory()
 			}
 			i = (i + 1) % loopMax

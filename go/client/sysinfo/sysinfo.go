@@ -10,15 +10,59 @@ package sysinfo
 import (
 	"github.com/ms-xy/Holmes-Planner-Monitor/go/msgtypes"
 	"sync"
+	"time"
 )
 
+// This struct describes the system information that we want to send to Status
+// in order to record it.
+// Additionally to the functions below, OS specific functions need to be
+// implemented:
+//
+//   - Sysinfo.UpdateSysinfo():
+//		 	System load information
+//   - Sysinfo.UpdateCores():
+//			Set the number of available cpu cores, this function will at some later
+//			point be replaced by a UpdateCpuinfo() function that gathers more
+//			information that this one does
+//	 - Sysinfo.UpdateMeminfo():
+//			Get the amount of memory used (and available), this includes swap usage
+//			if applicable to the system
+//	 - Sysinfo.UpdateDiskinfo():
+//			Update the information about available storage devices
+//	 - Sysinfo.UpdateCpuUsage():
+//			Get the usage of the CPU in percent, this function is separated from
+//			UpdateCores() for the simple reason that we execute it a lot more
+//			frequent
+//
+// If any of these functions encounters an error, it has to set this.LastError,
+// This makes error detection a bit easier. Could also add a channel to deal
+// with errors, but all that matters is knowing that there is an error (any
+// error in this module must be considered fatal, it indicates problems with the
+// machine).
+//
 type Sysinfo struct {
+	sync.Mutex
+
+	ticker    *time.Ticker
+	quit      chan struct{}
+	LastError error
+
 	System struct {
 		Uptime int64 //time.Duration
 		Load   [3]float64
 	}
 
 	Cpu struct {
+		IOWait uint64 // this field may indicate why load averages are so high (lots of procs waiting)
+		Idle   uint64 // these 3 values are required to calculate the "Load" percentage
+		Busy   uint64 // load = (total - idle) / total
+		Total  uint64
+
+		prev_iowait uint64
+		prev_idle   uint64
+		prev_busy   uint64
+		prev_total  uint64
+
 		Cores int // (not necessarily phyical cores)
 	}
 
@@ -43,49 +87,73 @@ func New() (*Sysinfo, error) {
 
 	si := &Sysinfo{}
 
-	// for initialization run updates in parallel
-	var (
-		err_meminfo  error
-		err_diskinfo error
-		err_cpuinfo  error
-		err_sysinfo  error
-		wg           = &sync.WaitGroup{}
-	)
+	// for initialization run updates in parallel and wait for all data to be
+	// gathered
+	wg := &sync.WaitGroup{}
 	wg.Add(4)
+
 	go func() {
 		defer wg.Done()
-		err_meminfo = si.UpdateMeminfo()
+		si.UpdateMeminfo()
 	}()
+
 	go func() {
 		defer wg.Done()
-		err_diskinfo = si.UpdateDiskinfo()
+		si.UpdateDiskinfo()
 	}()
+
 	go func() {
 		defer wg.Done()
-		// err_cpuinfo = si.UpdateCpuinfo()
-		err_cpuinfo = si.UpdateCores()
+		// si.UpdateCpuinfo()
+		si.UpdateCores()
 	}()
+
 	go func() {
 		defer wg.Done()
-		err_sysinfo = si.UpdateSysinfo()
+		si.UpdateSysinfo()
 	}()
+
 	wg.Wait()
 
-	if err_meminfo != nil || err_cpuinfo != nil || err_sysinfo != nil {
-		var errmsg string = ""
-		if err_meminfo != nil {
-			errmsg = errmsg + "Error updating meminfo: " + err_meminfo.Error()
-		}
-		if err_diskinfo != nil {
-			errmsg = errmsg + "Error updating diskinfo: " + err_diskinfo.Error()
-		}
-		if err_cpuinfo != nil {
-			errmsg = errmsg + "Error updating cpuinfo: " + err_cpuinfo.Error()
-		}
-		if err_sysinfo != nil {
-			errmsg = errmsg + "Error updating sysinfo: " + err_sysinfo.Error()
-		}
-	}
+	return si, si.LastError
+}
 
-	return si, nil
+func (this *Sysinfo) StartUpdate(every time.Duration) {
+	this.Lock()
+	defer this.Unlock()
+	this.stop()
+	go this.update(every)
+}
+
+func (this *Sysinfo) StopUpdate() {
+	this.Lock()
+	defer this.Unlock()
+	this.stop()
+	this.ticker = nil
+}
+
+func (this *Sysinfo) update(every time.Duration) {
+	this.ticker = time.NewTicker(every)
+	this.quit = make(chan struct{})
+	for range this.ticker.C {
+		// regular update only includes values that can possibly change:
+		// - RAM usage
+		// - CPU usage
+		// - Disk / Swap usage
+		// - Sysinfo (loads etc)
+		// the CPU isn't measured by this update function but updates
+		// every second based on sysdig input (for Linux)
+		go this.UpdateSysinfo()
+		go this.UpdateCpuUsage()
+		go this.UpdateMeminfo()
+		go this.UpdateDiskinfo()
+	}
+	close(this.quit)
+}
+
+func (this *Sysinfo) stop() {
+	if this.ticker != nil {
+		this.ticker.Stop()
+		<-this.quit
+	}
 }

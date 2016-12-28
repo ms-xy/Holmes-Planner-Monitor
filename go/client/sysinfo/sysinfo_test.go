@@ -8,10 +8,12 @@ import (
 )
 
 // Result:
-// Benchmark_UpdateSysinfo-4	10000000	       199 ns/op
-// Benchmark_UpdateCores-4  	   20000	     94889 ns/op
-// Benchmark_UpdateMeminfo-4	   10000	    156439 ns/op
-// Benchmark_UpdateCpuinfo-4	    2000	    541624 ns/op
+// Benchmark_UpdateSysinfo-4 	10000000	       194 ns/op
+// Benchmark_UpdateCores-4   	   20000	     76628 ns/op
+// Benchmark_UpdateMeminfo-4 	   10000	    110613 ns/op
+// Benchmark_UpdateCpuinfo-4 	    5000	    448167 ns/op
+// Benchmark_UpdateDiskinfo-4	    1000	   1125238 ns/op
+// Benchmark_UpdateCpuUsage-4	   10000	    103789 ns/op
 
 func Benchmark_UpdateSysinfo(b *testing.B) {
 	si := &Sysinfo{}
@@ -38,5 +40,19 @@ func Benchmark_UpdateCpuinfo(b *testing.B) {
 	si := &Sysinfo{}
 	for i := 0; i < b.N; i++ {
 		si.UpdateCpuinfo()
+	}
+}
+
+func Benchmark_UpdateDiskinfo(b *testing.B) {
+	si := &Sysinfo{}
+	for i := 0; i < b.N; i++ {
+		si.UpdateDiskinfo()
+	}
+}
+
+func Benchmark_UpdateCpuUsage(b *testing.B) {
+	si := &Sysinfo{}
+	for i := 0; i < b.N; i++ {
+		si.UpdateCpuUsage()
 	}
 }

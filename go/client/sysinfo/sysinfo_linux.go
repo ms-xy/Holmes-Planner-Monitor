@@ -8,40 +8,46 @@ import "C"
 
 import (
 	"errors"
-	"github.com/c9s/goprocinfo/linux"
+	goprocinfo "github.com/c9s/goprocinfo/linux"
 	"github.com/ms-xy/Holmes-Planner-Monitor/go/client/diskinfo"
 	"io/ioutil"
 	"syscall"
 )
 
-// Pretty fast (200ns). However, inaccuracy of memory values renders it useless
-// for UpdateMeminfo. Load values and uptime seem to be accurate though.
-func (this *Sysinfo) UpdateSysinfo() error {
+var (
+	SI_LOAD_SHIFT = float64(1 << C.SI_LOAD_SHIFT)
+)
+
+// ~ 200 ns/op
+// Too bad that inaccuracy of the memory values renders it useless
+// for UpdateMeminfo. Load values and uptime appear to be accurate though.
+func (this *Sysinfo) UpdateSysinfo() {
 
 	si := &syscall.Sysinfo_t{}
 
 	err := syscall.Sysinfo(si)
 	if err != nil {
-		return err
+		this.LastError = err
+		return
 	}
 
-	shift := float64(1 << C.SI_LOAD_SHIFT)
-	this.System.Load[0] = float64(si.Loads[0]) / shift
-	this.System.Load[1] = float64(si.Loads[1]) / shift
-	this.System.Load[2] = float64(si.Loads[2]) / shift
+	this.System.Load[0] = float64(si.Loads[0]) / SI_LOAD_SHIFT
+	this.System.Load[1] = float64(si.Loads[1]) / SI_LOAD_SHIFT
+	this.System.Load[2] = float64(si.Loads[2]) / SI_LOAD_SHIFT
 
 	// this.System.Uptime = time.Duration(si.Uptime) * time.Second
 	this.System.Uptime = si.Uptime
-
-	return nil
 }
 
-// Acceptable speed (90ms). As long as we don't ship any other CPU information,
-// The little information yield of this one is also acceptable.
-func (this *Sysinfo) UpdateCores() error {
+// ~ 100 µs/op
+// As long as we don't need any other CPU information,
+// the little information yield of this one is acceptable.
+// Alternative is to just use the goprocs solution used in other functions here.
+func (this *Sysinfo) UpdateCores() {
 	data, err := ioutil.ReadFile("/proc/cpuinfo")
 	if err != nil {
-		return errors.New("Error reading /proc/cpuinfo: " + err.Error())
+		this.LastError = errors.New("Error reading /proc/cpuinfo: " + err.Error())
+		return
 	}
 
 	lines := splitLines(data)
@@ -58,8 +64,6 @@ func (this *Sysinfo) UpdateCores() error {
 	}
 
 	this.Cpu.Cores = ncores
-
-	return nil
 }
 
 func splitLines(buf []byte) [][]byte {
@@ -91,14 +95,13 @@ func startsWith(line []byte, expr []byte) bool {
 	return true
 }
 
-// Acceptable speed (150ms). Yields a lot of information.
-// Parsing speed could potentially be increased a bit by dropping the
-// framework and writing a parser. (The lib uses regular expressions even
-// though the simplicity of the file entries does not require them)
-func (this *Sysinfo) UpdateMeminfo() error {
-	mi, err := linux.ReadMemInfo("/proc/meminfo")
+// ~ 100 µs/op
+// Even though the used framework is inefficient, this is still pretty fast.
+func (this *Sysinfo) UpdateMeminfo() {
+	mi, err := goprocinfo.ReadMemInfo("/proc/meminfo")
 	if err != nil {
-		return err
+		this.LastError = err
+		return
 	}
 
 	// see htop source, e.g. at
@@ -124,33 +127,73 @@ func (this *Sysinfo) UpdateMeminfo() error {
 	this.Swap.Free = mi.SwapFree * 1024
 	this.Swap.Available = mi.SwapFree * 1024
 	this.Swap.Used = (mi.SwapTotal - mi.SwapFree) * 1024
-
-	return nil
 }
 
-// For some reason this function requires 540ms to complete. That is a bit too
-// much for the information we need (just one int ...).
-// Reason probably is all the reallocations paired with inefficient conversions.
-// (Inefficient use of append on a list of structs)
-func (this *Sysinfo) UpdateCpuinfo() error {
-	ci, err := linux.ReadCPUInfo("/proc/cpuinfo")
-	if err != nil {
-		return err
+// ~ 500 µs/op
+// Reason for the somewhat worse performance compared to other functions is
+// probably all the reallocations paired with inefficient conversions (not to
+// mention the unnecessary regular expressions).
+// (The used framework does e.g. append to a list of structs (not struct ptrs))
+
+func (this *Sysinfo) UpdateCpuinfo() {
+	ci, err := goprocinfo.ReadCPUInfo("/proc/cpuinfo")
+	if err == nil {
+		this.Cpu.Cores = ci.NumCPU()
+	} else {
+		this.LastError = err
 	}
-
-	this.Cpu.Cores = ci.NumCPU()
-
-	return nil
 }
 
+// ~ 1 ms/op
 // Update the harddrive information of the system.
-func (this *Sysinfo) UpdateDiskinfo() error {
+// This function is very slow as it needs to launch a process and read its
+// output.
+func (this *Sysinfo) UpdateDiskinfo() {
 	harddrives, err := diskinfo.Get()
+	if err == nil {
+		this.Harddrives = harddrives
+	} else {
+		this.LastError = err
+	}
+}
+
+// ~ 100 µs/op
+// Read /proc/stat to obtain detailed cpu info
+// Calculation details taken from:
+// http://stackoverflow.com/a/23376195
+func (this *Sysinfo) UpdateCpuUsage() {
+	stat, err := goprocinfo.ReadStat("/proc/stat")
 	if err != nil {
-		return err
+		this.LastError = err
+		return
 	}
 
-	this.Harddrives = harddrives
+	x := stat.CPUStatAll
+	iowait := x.IOWait
+	idle := x.Idle + x.IOWait
+	busy := x.User + x.Nice + x.System + x.IRQ + x.SoftIRQ + x.Steal
+	total := idle + busy
 
-	return nil
+	d_iowait := iowait - this.Cpu.prev_iowait
+	d_idle := idle - this.Cpu.prev_idle
+	d_busy := busy - this.Cpu.prev_busy
+	d_total := total - this.Cpu.prev_total
+
+	// Update struct fields
+	// this.Cpu.Load = float64(d_total-d_idle) / float64(d_total) * 100
+	this.Cpu.IOWait = d_iowait
+	this.Cpu.Idle = d_idle
+	this.Cpu.Busy = d_busy
+	this.Cpu.Total = d_total
+
+	this.Cpu.prev_iowait = iowait
+	this.Cpu.prev_idle = idle
+	this.Cpu.prev_busy = busy
+	this.Cpu.prev_total = total
+
+	// Alternative real time measurement as root (or sysdig group):
+	// launch process "sudo sysdig -c sysinfo_cpu"
+	// launch go routine to read output and update self
+	// wait for <-this.quit
+	// kill process
 }
