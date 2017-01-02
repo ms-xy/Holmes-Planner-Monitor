@@ -90,7 +90,17 @@ func New() (*Sysinfo, error) {
 	// for initialization run updates in parallel and wait for all data to be
 	// gathered
 	wg := &sync.WaitGroup{}
-	wg.Add(4)
+	wg.Add(5)
+
+	go func() {
+		defer wg.Done()
+		si.UpdateSysinfo()
+	}()
+
+	go func() {
+		defer wg.Done()
+		si.UpdateCpuUsage()
+	}()
 
 	go func() {
 		defer wg.Done()
@@ -105,12 +115,7 @@ func New() (*Sysinfo, error) {
 	go func() {
 		defer wg.Done()
 		// si.UpdateCpuinfo()
-		si.UpdateCores()
-	}()
-
-	go func() {
-		defer wg.Done()
-		si.UpdateSysinfo()
+		si.UpdateCpuinfo()
 	}()
 
 	wg.Wait()

@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	SI_LOAD_SHIFT = float64(1 << C.SI_LOAD_SHIFT)
+	SI_LOAD_SHIFT_BASE = float64(1 << C.SI_LOAD_SHIFT)
+	SI_LOAD_SHIFT      = SI_LOAD_SHIFT_BASE
 )
 
 // ~ 200 ns/op
@@ -139,6 +140,7 @@ func (this *Sysinfo) UpdateCpuinfo() {
 	ci, err := goprocinfo.ReadCPUInfo("/proc/cpuinfo")
 	if err == nil {
 		this.Cpu.Cores = ci.NumCPU()
+		SI_LOAD_SHIFT = SI_LOAD_SHIFT_BASE * float64(this.Cpu.Cores) // adjust load shift
 	} else {
 		this.LastError = err
 	}

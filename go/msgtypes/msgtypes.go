@@ -3,14 +3,19 @@ package msgtypes
 import (
 	pb "github.com/ms-xy/Holmes-Planner-Monitor/protobuf/generated-go"
 	"net"
+	"time"
 )
 
 // -----------------------------------------------------------------------------
 
 type StatusMessage struct {
-	PID           uint64
-	UUID          *UUID
-	PlannerInfo   *PlannerInfo
+	PID         uint64
+	UUID        *UUID
+	MachineUUID *UUID
+	Timestamp   time.Time
+
+	PlannerInfo *PlannerInfo
+
 	SystemStatus  *SystemStatus
 	NetworkStatus *NetworkStatus
 	PlannerStatus *PlannerStatus
@@ -18,11 +23,22 @@ type StatusMessage struct {
 }
 
 func (this *StatusMessage) FromPb(o *pb.StatusMessage) *StatusMessage {
-	this.PID = o.PID
-	this.UUID = UUID4Empty()
-	if err := this.UUID.FromBytes(o.UUID); err != nil {
-		panic(err) // TODO: is there a better way than to panic?
+	// TODO: find a better way than to panic, this stops the entire storage!
+	uuid, err := UUIDFromBytes(o.Uuid)
+	if err != nil {
+		panic(err)
 	}
+	// TODO: find a better way than to panic, this stops the entire storage!
+	machineUuid, err := UUIDFromBytes(o.MachineUuid)
+	if err != nil {
+		panic(err)
+	}
+
+	this.PID = o.Pid
+	this.UUID = uuid
+	this.MachineUUID = machineUuid
+	this.Timestamp = time.Unix(0, int64(o.Timestamp))
+
 	if o.PlannerInfo != nil {
 		this.PlannerInfo = (&PlannerInfo{}).FromPb(o.PlannerInfo)
 	} else if o.SystemStatus != nil {
@@ -41,9 +57,14 @@ func (this *StatusMessage) ToPb() *pb.StatusMessage {
 	if this.UUID == nil {
 		this.UUID = UUID4Empty()
 	}
+	if this.MachineUUID == nil {
+		this.MachineUUID = UUID4Empty()
+	}
 	o := &pb.StatusMessage{
-		PID:  this.PID,
-		UUID: this.UUID.ToBytes(),
+		Pid:         this.PID,
+		Uuid:        this.UUID.ToBytes(),
+		MachineUuid: this.MachineUUID.ToBytes(),
+		Timestamp:   uint64(this.Timestamp.UnixNano()),
 	}
 	if this.PlannerInfo != nil {
 		o.PlannerInfo = this.PlannerInfo.ToPb()
@@ -288,18 +309,26 @@ type StatusKvPair struct {
 // -----------------------------------------------------------------------------
 
 type ControlMessage struct {
-	UUID          *UUID
+	UUID        *UUID
+	MachineUUID *UUID
+
 	AckConnect    bool
 	AckDisconnect bool
-	ExtraData     [][]byte
+
+	ExtraData [][]byte
 }
 
 func (this *ControlMessage) FromPb(o *pb.ControlMessage) *ControlMessage {
 	this.UUID = UUID4Empty()
 	this.UUID.FromBytes(o.Uuid)
+	this.MachineUUID = UUID4Empty()
+	this.MachineUUID.FromBytes(o.MachineUuid)
+
 	this.AckConnect = o.AckConnect
 	this.AckDisconnect = o.AckDisconnect
+
 	this.ExtraData = o.ExtraData
+
 	return this
 }
 
@@ -307,8 +336,12 @@ func (this *ControlMessage) ToPb() *pb.ControlMessage {
 	if this.UUID == nil {
 		this.UUID = UUID4Empty()
 	}
+	if this.MachineUUID == nil {
+		this.MachineUUID = UUID4Empty()
+	}
 	return &pb.ControlMessage{
 		Uuid:          this.UUID.ToBytes(),
+		MachineUuid:   this.MachineUUID.ToBytes(),
 		AckConnect:    this.AckConnect,
 		AckDisconnect: this.AckDisconnect,
 		ExtraData:     this.ExtraData,

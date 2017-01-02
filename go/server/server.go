@@ -75,9 +75,10 @@ func dispatcher() {
 		asm = <-inQueue
 		// dispatch depending on contained messages
 		go func(asm AddressedStatusMessage) {
+			now := time.Now()
+
 			// get session instance / create if not exists
 			session, isnew := sessionmap.StartSession(asm)
-			now := time.Now()
 
 			session.LastSeen = now
 			if isnew {

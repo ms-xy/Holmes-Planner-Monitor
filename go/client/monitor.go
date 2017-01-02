@@ -22,13 +22,14 @@ import (
 var (
 	// Connection, addresses and a buffer for reading, its size set to exactly
 	// 65000
-	pid        = uint64(os.Getpid())
-	uuid       = msgtypes.UUID4Empty()
-	raddr      *net.UDPAddr
-	laddr      *net.UDPAddr
-	connection *net.UDPConn
-	buffer     []byte = make([]byte, 0xfde8)
-	connected  bool
+	pid          = uint64(os.Getpid())
+	uuid         = msgtypes.UUID4Empty()
+	machine_uuid = msgtypes.UUID4Empty()
+	raddr        *net.UDPAddr
+	laddr        *net.UDPAddr
+	connection   *net.UDPConn
+	buffer       []byte = make([]byte, 0xfde8)
+	connected    bool
 
 	// Automatic status information gathering (sysinfo, meminfo, cpuinfo)
 	sysinfo *Sysinfo.Sysinfo
@@ -101,7 +102,7 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		return err
 	}
 
-	// Get the uuid if it already exists
+	// Get the machine_uuid if it already exists
 	// TODO: make the location configurable
 	var (
 		// uuid_file_path string = "/var/cache/Holmes-Processing/uuid"
@@ -124,11 +125,11 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 			return err
 		}
 		if len(bytes) > 0 {
-			err := uuid.FromString(string(bytes))
+			err := machine_uuid.FromString(string(bytes))
 			if err != nil {
 				return errors.New(uuid_file_path + " contains a malformed uuid: " + err.Error())
 			}
-			logf(LogLevelDebug, "UUID=%s", uuid.ToString())
+			logf(LogLevelDebug, "UUID=%s", machine_uuid.ToString())
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -138,12 +139,17 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 	// TODO: configuration option / parameter for number of retries and timeout
 	interval := 2 * time.Second
 	maxRetry := 10
-	logf(LogLevelDebug, "Attempt to connect to Holmes-Status, %d retries, %s timeout", maxRetry, interval.String())
+	logf(LogLevelDebug, "Attempt to connect to Holmes-Status, %d retries, %s timeout",
+		maxRetry,
+		interval.String())
 
 	msg := &pb.StatusMessage{PlannerInfo: info.ToPb()}
 	fn := func(resp *msgtypes.ControlMessage) bool {
 		if resp.UUID.IsValid() {
 			uuid = resp.UUID
+		}
+		if resp.MachineUUID.IsValid() {
+			machine_uuid = resp.MachineUUID
 		}
 		return resp.AckConnect
 	}
@@ -160,12 +166,14 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		stateTransition(StateConnecting, StateDisconnected)
 		return err
 	}
-	logf(LogLevelDebug, "Status Server: Ack=True, UUID=%s", uuid.ToString())
+	logf(LogLevelDebug, "Status Server: Ack=True, MachineUUID=%s, UUID=%s",
+		machine_uuid.ToString(),
+		uuid.ToString())
 
 	// Write uuid file
 	// TODO: what to do in case of different previous content in this file?
 	//       That would be a severe error ...
-	err = ioutil.WriteFile(uuid_file_path, []byte(uuid.ToString()), 0600)
+	err = ioutil.WriteFile(uuid_file_path, []byte(machine_uuid.ToString()), 0600)
 	if err != nil {
 		return err
 	}
@@ -226,8 +234,16 @@ func Disconnect() error {
 // -----------------------------------------------------------------------------
 
 func send(msg *pb.StatusMessage) error {
-	msg.PID = pid
-	msg.UUID = uuid.ToBytes()
+	// Fill mandatory fields. PID, UUID, and MachineUUID allow for specific
+	// identification, whilst Timestamp pinpoints events to a specific time,
+	// allowing for fine grained statistics and searching.
+	// The delay between enqueuing a message and actually sending it should be
+	// neglectable in this context.
+	msg.Pid = pid
+	msg.Uuid = uuid.ToBytes()
+	msg.MachineUuid = machine_uuid.ToBytes()
+	msg.Timestamp = uint64(time.Now().UnixNano())
+
 	bytes, err := proto.Marshal(msg)
 	if err == nil {
 		_, err = connection.Write(bytes)

@@ -15,12 +15,20 @@ option java_outer_classname = "StatusMessagesProtobuf";
 //
 
 message StatusMessage {
-  // the PID is used for planner identification, it is not reliable in case of
-  // planner restarts, but persistent across disconnects without restarts
-  uint64 PID = 5;
-  // the UUID is used for machine identification, it is reliable and supposed to
-  // be persistent across reboots
-  bytes UUID = 6;
+  // the pid is used for planner identification, it is not reliable in case of
+  // planner restarts (or even OS restart), but reliably persistent across
+  // disconnects without any restarts
+  // it isn't even unique
+  uint64 pid = 5;
+  // the UUID is used for machine identification, it is supposed to be
+  // persistent across reboots, thus should be saved in a persistent location
+  bytes uuid = 6;
+  // the MachineUUID on the other hand is supposed to be persistent and thus
+  // should be saved in a location that is persistent across reboots
+  bytes machineUuid = 7;
+  // the time stamp is important as it allows to pinpoint events to local system
+  // time
+  uint64 timestamp = 8;
 
   // for the initial message, high number, we only send this upon initialization
   // of the connection (identifiers 1-15 use 1 byte, 16-2047 2 bytes)
@@ -135,6 +143,7 @@ message StatusKvPair {
 message ControlMessage {
   // The UUID payload is important for client (re-)identification.
   bytes uuid = 1;
+  bytes machineUuid = 2;
 
   // Ack type responses are only for rarely sent messages (like planner info
   // which is only sent once at the start of a connection and is required by
