@@ -3,6 +3,7 @@ package msgtypes
 import (
 	pb "github.com/ms-xy/Holmes-Planner-Monitor/protobuf/generated-go"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -206,7 +207,7 @@ func (this *NetworkStatus) FromPb(o *pb.NetworkStatus) *NetworkStatus {
 			ID:        int(o.Interfaces[i].Id),
 			Name:      o.Interfaces[i].Name,
 			IP:        net.IP(o.Interfaces[i].Ip),
-			Netmask:   net.IPMask(o.Interfaces[i].Netmask),
+			Netmask:   IPMask(net.IPMask(o.Interfaces[i].Netmask)),
 			Broadcast: net.IP(o.Interfaces[i].Broadcast),
 			Scope:     o.Interfaces[i].Scope,
 		}
@@ -296,7 +297,7 @@ type NetworkInterface struct {
 	ID        int
 	Name      string
 	IP        net.IP
-	Netmask   net.IPMask
+	Netmask   IPMask
 	Broadcast net.IP
 	Scope     string
 }
@@ -304,6 +305,24 @@ type NetworkInterface struct {
 type StatusKvPair struct {
 	Key   string
 	Value string
+}
+
+// -----------------------------------------------------------------------------
+
+type IPMask net.IPMask
+
+func (this IPMask) MarshalJSON() ([]byte, error) {
+	ipmask := net.IPMask(this)
+	ones, bits := ipmask.Size()
+	x := []byte(ipmask.String() +
+		" /" + strconv.FormatInt(int64(ones), 10) +
+		" len(" + strconv.FormatInt(int64(bits), 10) +
+		")")
+	r := make([]byte, len(x)+2)
+	r[0] = '"'
+	r[len(r)-1] = '"'
+	copy(r[1:len(r)-1], x)
+	return r, nil
 }
 
 // -----------------------------------------------------------------------------

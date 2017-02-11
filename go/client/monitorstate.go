@@ -29,19 +29,19 @@ const (
 	StateDisconnecting
 )
 
-var (
+type MonitorStateManager struct {
 	// Mutex for monitor state management and the state itself
-	monitorlock  *sync.Mutex  = &sync.Mutex{}
-	monitorstate MonitorState = StateDisconnected
-)
+	monitorlock  *sync.Mutex
+	monitorstate MonitorState
+}
 
-func stateTransition(oldstate, newstate MonitorState) (bool, MonitorState) {
-	monitorlock.Lock()
-	defer monitorlock.Unlock()
+func (this *MonitorStateManager) stateTransition(oldstate, newstate MonitorState) (bool, MonitorState) {
+	this.monitorlock.Lock()
+	defer this.monitorlock.Unlock()
 
-	if monitorstate != oldstate {
-		return false, monitorstate
+	if this.monitorstate != oldstate {
+		return false, this.monitorstate
 	}
-	monitorstate = newstate
-	return true, monitorstate
+	this.monitorstate = newstate
+	return true, this.monitorstate
 }

@@ -80,7 +80,7 @@ func Get() ([]*msgtypes.NetworkInterface, error) {
 				ID:        int(id),
 				Name:      record[2],
 				IP:        ip,
-				Netmask:   cidr.Mask,
+				Netmask:   msgtypes.IPMask(cidr.Mask),
 				Broadcast: broadcast,
 				Scope:     scope,
 			}

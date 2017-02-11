@@ -96,6 +96,7 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 
 	// Update connection related fields of the session object.
 	session.Address = asm.Address
+	session.pid = pid
 
 	// Session is only new if it did not exist before (even if it was assigned to
 	// a different machine previously)

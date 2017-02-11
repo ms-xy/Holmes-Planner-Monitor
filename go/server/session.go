@@ -47,6 +47,7 @@ func (c *Session) init() {
 //
 // Get the session's UUID.
 // Unique.
+// This is afaik the planner's UUID.
 //
 func (c *Session) GetUuid() *msgtypes.UUID {
 	return c.uuid
@@ -64,9 +65,9 @@ func (c *Session) GetMachineUuid() *msgtypes.UUID {
 // Get the session's PID.
 // Unique per machine.
 //
-func (c *Session) GetPID() uint64 {
-	return c.pid
-}
+// func (c *Session) GetPID() uint64 {
+// 	return c.pid
+// }
 
 //
 // Mark a session as closed. This results in session removal by the dispatcher.

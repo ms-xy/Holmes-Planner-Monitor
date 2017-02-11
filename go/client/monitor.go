@@ -8,10 +8,9 @@ import (
 	pb "github.com/ms-xy/Holmes-Planner-Monitor/protobuf/generated-go"
 
 	"errors"
-	"io/ioutil"
+	"log"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -20,16 +19,37 @@ import (
 )
 
 var (
+	singleton *Monitor
+)
+
+func GetInstance() *Monitor {
+	if singleton == nil {
+		singleton = NewInstance()
+	}
+	return singleton
+}
+
+func NewInstance() *Monitor {
+	m := &Monitor{}
+	m.Init()
+	return m
+}
+
+type Monitor struct {
+	// Inherit from state manager and logger
+	MonitorStateManager
+	Logger
 	// Connection, addresses and a buffer for reading, its size set to exactly
 	// 65000
-	pid          = uint64(os.Getpid())
-	uuid         = msgtypes.UUID4Empty()
-	machine_uuid = msgtypes.UUID4Empty()
-	raddr        *net.UDPAddr
-	laddr        *net.UDPAddr
-	connection   *net.UDPConn
-	buffer       []byte = make([]byte, 0xfde8)
-	connected    bool
+	pid            uint64
+	uuid           *msgtypes.UUID
+	machine_uuid   *msgtypes.UUID
+	uuid_file_path string
+	raddr          *net.UDPAddr
+	laddr          *net.UDPAddr
+	connection     *net.UDPConn
+	buffer         []byte
+	connected      bool
 
 	// Automatic status information gathering (sysinfo, meminfo, cpuinfo)
 	sysinfo *Sysinfo.Sysinfo
@@ -56,21 +76,40 @@ var (
 
 	// Names for Messages
 	plannerInfo *pb.PlannerInfo
-)
+}
+
+func (this *Monitor) Init() {
+	// Init logger (with prefix)
+	// Default log level is quiet, equivalent to no logging
+	this.LogOutput = log.New(os.Stdout, "Status-Monitor: ", log.Ldate|log.Ltime|log.Lshortfile)
+	this.LogLevel = LogLevelQuiet
+
+	// Init monitor
+	this.pid = uint64(os.Getpid())
+	this.uuid = msgtypes.UUID4Empty()
+	this.machine_uuid = msgtypes.UUID4Empty()
+	this.buffer = make([]byte, 0xfde8)
+	this.connected = false
+	// TODO: make the location configurable
+	// this.uuid_file_path = "/var/cache/Holmes-Processing/uuid"
+	this.uuid_file_path = "/var/tmp/holmes_processing_cache/uuid"
+
+	// Init state manager
+	this.monitorlock = &sync.Mutex{}
+	this.monitorstate = StateDisconnected
+}
 
 // Connect to the remote address using the given local address and try init
 // status connection with the given planner name.
 // Addresses must have the format host:port or [ipv6-host%zone]:port.
 // Terminate an old connection if exists.
 //
-// TODO: implement UUID transfer, save in /var/cache/Holmes-Processing/machine.uuid
-//
-func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
+func (this *Monitor) Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 	// To avoid race conditions we have to check whether or not we are allowed to
 	// continue.
-	ok, state := stateTransition(StateDisconnected, StateConnecting)
+	ok, state := this.stateTransition(StateDisconnected, StateConnecting)
 	if !ok {
-		logf(LogLevelDebug, "Cannot connect because monitor is %s", state.String())
+		this.Logf(LogLevelDebug, "Cannot connect because monitor is %s", state.String())
 		return errors.New("Cannot connect because monitor is " + state.String())
 	}
 
@@ -80,80 +119,53 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 		ackd bool
 	)
 
-	logf(LogLevelDebug, "Initializing sysinfo")
-	sysinfo, err = Sysinfo.New()
-	sysinfo.StartUpdate(1 * time.Second)
+	this.Logf(LogLevelDebug, "Initializing sysinfo")
+	this.sysinfo, err = Sysinfo.New()
+	this.sysinfo.StartUpdate(1 * time.Second)
 	if err != nil {
 		return err
 	}
-	logf(LogLevelDebug, "Initializing netinfo")
-	netinfo, err = Netinfo.Get()
-	if err != nil {
-		return err
-	}
-
-	logf(LogLevelDebug, "Connecting to %s", remoteAddr)
-	if raddr, err = net.ResolveUDPAddr("udp", remoteAddr); err == nil {
-		connection, err = net.DialUDP("udp", nil, raddr)
-	}
-	if err != nil {
-		logf(LogLevelDebug, "Connection attempt failed: %s", err.Error())
-		stateTransition(StateConnecting, StateDisconnected)
-		return err
-	}
-
-	// Get the machine_uuid if it already exists
-	// TODO: make the location configurable
-	var (
-		// uuid_file_path string = "/var/cache/Holmes-Processing/uuid"
-		uuid_file_path string = "/var/tmp/holmes_processing_cache/uuid"
-	)
-
-	// Create the folder in /var/cache
-	err = os.MkdirAll(filepath.Dir(uuid_file_path), 0700)
+	this.Logf(LogLevelDebug, "Initializing netinfo")
+	this.netinfo, err = Netinfo.Get()
 	if err != nil {
 		return err
 	}
 
-	// Use os.Stat() to determine whether or not the file exists (and is no dir)
-	if fi, err := os.Stat(uuid_file_path); err == nil {
-		if fi.IsDir() {
-			return errors.New(uuid_file_path + ": expected a file, found a directory")
-		}
-		bytes, err := ioutil.ReadFile(uuid_file_path)
-		if err != nil {
-			return err
-		}
-		if len(bytes) > 0 {
-			err := machine_uuid.FromString(string(bytes))
-			if err != nil {
-				return errors.New(uuid_file_path + " contains a malformed uuid: " + err.Error())
-			}
-			logf(LogLevelDebug, "UUID=%s", machine_uuid.ToString())
-		}
-	} else if !os.IsNotExist(err) {
+	this.Logf(LogLevelDebug, "Connecting to %s", remoteAddr)
+	if this.raddr, err = net.ResolveUDPAddr("udp", remoteAddr); err == nil {
+		this.connection, err = net.DialUDP("udp", nil, this.raddr)
+	}
+	if err != nil {
+		this.Logf(LogLevelDebug, "Connection attempt failed: %s", err.Error())
+		this.stateTransition(StateConnecting, StateDisconnected)
+		return err
+	}
+
+	// Load machine uuid
+	if err := this.load_machine_uuid(); err != nil {
 		return err
 	}
 
 	// Send planner info, expect reply with either matching uuid or new uuid.
 	// TODO: configuration option / parameter for number of retries and timeout
-	interval := 2 * time.Second
+	interval := 10 * time.Second
 	maxRetry := 10
-	logf(LogLevelDebug, "Attempt to connect to Holmes-Status, %d retries, %s timeout",
+	this.Logf(LogLevelDebug, "Attempt to connect to Holmes-Status, %d retries, %s timeout",
 		maxRetry,
 		interval.String())
 
 	msg := &pb.StatusMessage{PlannerInfo: info.ToPb()}
 	fn := func(resp *msgtypes.ControlMessage) bool {
+		this.Logf(LogLevelDebug, "Received a control-message: %v", resp)
 		if resp.UUID.IsValid() {
-			uuid = resp.UUID
+			this.uuid = resp.UUID
 		}
 		if resp.MachineUUID.IsValid() {
-			machine_uuid = resp.MachineUUID
+			this.machine_uuid = resp.MachineUUID
 		}
 		return resp.AckConnect
 	}
-	ackd, err = sendUntil(msg, fn, interval, maxRetry)
+	ackd, err = this.sendUntil(msg, fn, interval, maxRetry)
 
 	// If no acknowledge was received, the connection attempt has failed.
 	if !ackd {
@@ -162,41 +174,36 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 			// could be a connection problem too, not just no ack received
 			err = errors.New("Status Server: Ack=False")
 		}
-		connection.Close()
-		stateTransition(StateConnecting, StateDisconnected)
+		this.connection.Close()
+		this.stateTransition(StateConnecting, StateDisconnected)
 		return err
 	}
-	logf(LogLevelDebug, "Status Server: Ack=True, MachineUUID=%s, UUID=%s",
-		machine_uuid.ToString(),
-		uuid.ToString())
+	this.Logf(LogLevelDebug, "Status Server: Ack=True, MachineUUID=%s, UUID=%s",
+		this.machine_uuid.ToString(),
+		this.uuid.ToString())
 
-	// Write uuid file
-	// TODO: what to do in case of different previous content in this file?
-	//       That would be a severe error ...
-	err = ioutil.WriteFile(uuid_file_path, []byte(machine_uuid.ToString()), 0600)
-	if err != nil {
-		return err
-	}
+	// Save machine uuid
+	err = this.save_machine_uuid()
 
 	// Create channels and launch incoming as well as outgoing message loops
 	// The quit channel is just a cheap throwaway channel to interrupt the
 	// loops
-	statusMessageChannel = make(chan *pb.StatusMessage, 1000)
-	controlMessageChannel = make(chan *msgtypes.ControlMessage, 1000)
-	go statusMessageLoop()
-	go controlMessageLoop()
+	this.statusMessageChannel = make(chan *pb.StatusMessage, 1000)
+	this.controlMessageChannel = make(chan *msgtypes.ControlMessage, 1000)
+	go this.statusMessageLoop()
+	go this.controlMessageLoop()
 
 	// Start loop to gather some status automatically
-	go automaticStatusLoop()
+	go this.automaticStatusLoop()
 
 	// data structures to handle disconnecting
-	disconnect = make(chan struct{})
-	disconnectWaitGroup = &sync.WaitGroup{}
+	this.disconnect = make(chan struct{})
+	this.disconnectWaitGroup = &sync.WaitGroup{}
 
 	// signal connection state
-	connected = true
-	log(LogLevelDebug, "Connected")
-	stateTransition(StateConnecting, StateConnected)
+	this.connected = true
+	this.Log(LogLevelDebug, "Connected")
+	this.stateTransition(StateConnecting, StateConnected)
 	return nil
 }
 
@@ -204,11 +211,11 @@ func Connect(remoteAddr string, info *msgtypes.PlannerInfo) error {
 // This should be called upon shutting down the planner, to avoid detection of
 // a node-down event on the status server side. (Cannot distinguish a willful
 // disconnect from a crash without prior notification)
-func Disconnect() error {
+func (this *Monitor) Disconnect() error {
 	// Advance to disconnecting state only if connected
-	ok, state := stateTransition(StateConnected, StateDisconnecting)
+	ok, state := this.stateTransition(StateConnected, StateDisconnecting)
 	if !ok {
-		logf(LogLevelDebug, "Cannot disconnect because monitor is %s", state.String())
+		this.Logf(LogLevelDebug, "Cannot disconnect because monitor is %s", state.String())
 		return errors.New("Cannot disconnect because monitor is " + state.String())
 	}
 
@@ -217,36 +224,38 @@ func Disconnect() error {
 	// TODO: but only with max retries just like for connect
 
 	// Interupt loops
-	disconnectWaitGroup.Add(3) // TODO: how many routines do we actually have?
-	connected = false          // this prevents any more messages to be sent
-	close(disconnect)
-	disconnectWaitGroup.Wait()
-	close(statusMessageChannel)
-	close(controlMessageChannel)
+	this.disconnectWaitGroup.Add(3) // TODO: how many routines do we actually have?
+	this.connected = false          // this prevents any more messages to be sent
+	close(this.disconnect)
+	this.disconnectWaitGroup.Wait()
+	close(this.statusMessageChannel)
+	close(this.controlMessageChannel)
 
 	// Close the connection and signal connection state
-	connection.Close()
-	stateTransition(StateDisconnecting, StateDisconnected)
-	log(LogLevelDebug, "Disconnected")
+	this.connection.Close()
+	this.stateTransition(StateDisconnecting, StateDisconnected)
+	this.Log(LogLevelDebug, "Disconnected")
 	return nil
 }
 
 // -----------------------------------------------------------------------------
 
-func send(msg *pb.StatusMessage) error {
+func (this *Monitor) send(msg *pb.StatusMessage) error {
 	// Fill mandatory fields. PID, UUID, and MachineUUID allow for specific
 	// identification, whilst Timestamp pinpoints events to a specific time,
 	// allowing for fine grained statistics and searching.
 	// The delay between enqueuing a message and actually sending it should be
 	// neglectable in this context.
-	msg.Pid = pid
-	msg.Uuid = uuid.ToBytes()
-	msg.MachineUuid = machine_uuid.ToBytes()
+	// msg.Pid = pid
+	msg.Uuid = this.uuid.ToBytes()
+	msg.MachineUuid = this.machine_uuid.ToBytes()
 	msg.Timestamp = uint64(time.Now().UnixNano())
 
 	bytes, err := proto.Marshal(msg)
 	if err == nil {
-		_, err = connection.Write(bytes)
+		// this.Log(LogLevelDebug, "Sending message")
+		// debug.PrintStack()
+		_, err = this.connection.Write(bytes)
 	}
 	return err
 }
@@ -256,17 +265,17 @@ type singleMsgStruct struct {
 	msg *msgtypes.ControlMessage
 }
 
-func recv(singleMsgChan chan singleMsgStruct) {
+func (this *Monitor) recv(singleMsgChan chan singleMsgStruct) {
 	var (
 		n    int
 		err  error
 		rmsg = &msgtypes.ControlMessage{}
 	)
 	// TODO: what happens if connection is closed to read?
-	if n, err = connection.Read(buffer); err == nil {
+	if n, err = this.connection.Read(this.buffer); err == nil {
 		if n > 0 {
 			msg := &pb.ControlMessage{}
-			if err = proto.Unmarshal(buffer[0:n], msg); err == nil {
+			if err = proto.Unmarshal(this.buffer[0:n], msg); err == nil {
 				rmsg.FromPb(msg)
 			}
 		}
@@ -274,21 +283,23 @@ func recv(singleMsgChan chan singleMsgStruct) {
 	singleMsgChan <- singleMsgStruct{err, rmsg}
 }
 
-func sendUntil(msg *pb.StatusMessage, fn func(*msgtypes.ControlMessage) bool, interval time.Duration, maxRetry int) (bool, error) {
+func (this *Monitor) sendUntil(msg *pb.StatusMessage, fn func(*msgtypes.ControlMessage) bool, interval time.Duration, maxRetry int) (bool, error) {
 	singleMsgChan := make(chan singleMsgStruct, 1)
 	defer close(singleMsgChan)
 
 	// Remove read deadline ((time.Time{}).IsZero() == true)
-	defer connection.SetReadDeadline(time.Time{})
+	defer this.connection.SetReadDeadline(time.Time{})
 
 	var err error
 
 	for i := 0; i < maxRetry; i++ {
-		if err = send(msg); err == nil {
 
-			connection.SetReadDeadline(time.Now().Add(interval))
+		// this.Log(LogLevelDebug, "attempt sending")
 
-			go recv(singleMsgChan)
+		if err = this.send(msg); err == nil {
+
+			this.connection.SetReadDeadline(time.Now().Add(interval))
+			go this.recv(singleMsgChan)
 			r := <-singleMsgChan
 
 			if r.err == nil {
@@ -306,60 +317,60 @@ func sendUntil(msg *pb.StatusMessage, fn func(*msgtypes.ControlMessage) bool, in
 
 // -----------------------------------------------------------------------------
 
-func statusMessageLoop() {
+func (this *Monitor) statusMessageLoop() {
 	var err error
 
 	for {
 
 		select {
-		case <-disconnect:
-			log(LogLevelDebug, "++ Exit (statusMessageLoop)")
-			disconnectWaitGroup.Done()
+		case <-this.disconnect:
+			this.Log(LogLevelDebug, "++ Exit (statusMessageLoop)")
+			this.disconnectWaitGroup.Done()
 			return
 
-		case msg := <-statusMessageChannel:
-			if err = send(msg); err != nil {
+		case msg := <-this.statusMessageChannel:
+			if err = this.send(msg); err != nil {
 				if strings.Contains(err.Error(), "connection refused") {
-					log(LogLevelDebug, "-- Connection refused, disconnecting")
-					go Disconnect()
+					this.Log(LogLevelDebug, "-- Connection refused, disconnecting")
+					go this.Disconnect()
 				} else {
-					logf(LogLevelDebug, "-- Error sending control message: '%v'", err)
+					this.Logf(LogLevelErrors, "-- Error sending status message: '%v'", err)
 				}
 			}
 		}
 	}
 }
 
-func controlMessageLoop() {
+func (this *Monitor) controlMessageLoop() {
 	singleMsgChan := make(chan singleMsgStruct, 1)
 	// defer close(singleMsgChan) // TODO: close it, but needs to be done in recv
 
 	for {
-		if !connected {
-			log(LogLevelDebug, "++ Exit (controlMessageLoop)")
-			disconnectWaitGroup.Done()
+		if !this.connected {
+			this.Log(LogLevelDebug, "++ Exit (controlMessageLoop)")
+			this.disconnectWaitGroup.Done()
 			return
 		}
 
-		go recv(singleMsgChan)
+		go this.recv(singleMsgChan)
 
 		select {
-		case <-disconnect:
-			log(LogLevelDebug, "++ Exit (controlMessageLoop)")
-			disconnectWaitGroup.Done()
+		case <-this.disconnect:
+			this.Log(LogLevelDebug, "++ Exit (controlMessageLoop)")
+			this.disconnectWaitGroup.Done()
 			return
 
 		case r := <-singleMsgChan:
 			if r.err != nil {
 				if strings.Contains(r.err.Error(), "connection refused") {
-					log(LogLevelDebug, "-- Connection refused, disconnecting")
-					go Disconnect()
+					this.Log(LogLevelDebug, "-- Connection refused, disconnecting")
+					go this.Disconnect()
 				} else {
-					logf(LogLevelDebug, "-- Error receiving control message: '%v'  %v", r.err, r.msg)
+					this.Logf(LogLevelDebug, "-- Error receiving control message: '%v'  %v", r.err, r.msg)
 				}
 			} else if r.msg != nil {
 				// if recv times out, (nil, nil) is returned
-				controlMessageChannel <- r.msg
+				this.controlMessageChannel <- r.msg
 			}
 		}
 
@@ -368,9 +379,9 @@ func controlMessageLoop() {
 
 // -----------------------------------------------------------------------------
 
-func automaticStatusLoop() {
+func (this *Monitor) automaticStatusLoop() {
 	_send := func(sysinfo *Sysinfo.Sysinfo, netinfo []*msgtypes.NetworkInterface) {
-		systemStatus(&msgtypes.SystemStatus{
+		this.systemStatus(&msgtypes.SystemStatus{
 			Uptime: sysinfo.System.Uptime,
 
 			CpuIOWait: sysinfo.Cpu.IOWait,
@@ -389,26 +400,26 @@ func automaticStatusLoop() {
 			Loads5:  sysinfo.System.Load[1],
 			Loads15: sysinfo.System.Load[2],
 		})
-		networkStatus(&msgtypes.NetworkStatus{
+		this.networkStatus(&msgtypes.NetworkStatus{
 			Interfaces: netinfo,
 		})
 	}
 	// send initial system and network status messages
-	_send(sysinfo, netinfo)
+	_send(this.sysinfo, this.netinfo)
 	// regular updates (every second)
 	i := 0
 	loopMax := 100
 	for {
 		select {
-		case <-disconnect:
-			log(LogLevelDebug, "++ Exit (automaticStatusLoop)")
-			disconnectWaitGroup.Done()
+		case <-this.disconnect:
+			this.Log(LogLevelDebug, "++ Exit (automaticStatusLoop)")
+			this.disconnectWaitGroup.Done()
 			return
 		case <-time.After(1 * time.Second):
 			// TODO: treat potential error by NetInfo.Get()
-			netinfo, _ = Netinfo.Get()
+			this.netinfo, _ = Netinfo.Get()
 			// publish update
-			_send(sysinfo, netinfo)
+			_send(this.sysinfo, this.netinfo)
 			// only execute the expensive global free every "loopMax" cycles
 			// basically results in a good memory balance and overall cheap cycles
 			if i%loopMax == 0 {
@@ -421,18 +432,18 @@ func automaticStatusLoop() {
 
 // -----------------------------------------------------------------------------
 
-func enqueue(msg *pb.StatusMessage) {
-	if !connected {
-		log(LogLevelDebug, "++ Deny (enqueue)")
+func (this *Monitor) enqueue(msg *pb.StatusMessage) {
+	if !this.connected {
+		this.Log(LogLevelDebug, "++ Deny (enqueue)")
 		return
 	}
 	select {
-	case <-disconnect:
+	case <-this.disconnect:
 		// in case the queue is full when connection is terminated to avoid
 		// orphaned goroutines lingering around, as well as panics, return
-		log(LogLevelDebug, "++ Exit (enqueue)")
+		this.Log(LogLevelDebug, "++ Exit (enqueue)")
 		return
-	case statusMessageChannel <- msg:
+	case this.statusMessageChannel <- msg:
 	}
 }
 
@@ -441,11 +452,11 @@ func enqueue(msg *pb.StatusMessage) {
 // The system status and network status types are gathered automatically, as
 // such they use the less convenient, but easier maintainable interface.
 // Further for that very reason they are not public.
-func systemStatus(msg *msgtypes.SystemStatus) {
-	enqueue(&pb.StatusMessage{SystemStatus: msg.ToPb()})
+func (this *Monitor) systemStatus(msg *msgtypes.SystemStatus) {
+	this.enqueue(&pb.StatusMessage{SystemStatus: msg.ToPb()})
 }
-func networkStatus(msg *msgtypes.NetworkStatus) {
-	enqueue(&pb.StatusMessage{NetworkStatus: msg.ToPb()})
+func (this *Monitor) networkStatus(msg *msgtypes.NetworkStatus) {
+	this.enqueue(&pb.StatusMessage{NetworkStatus: msg.ToPb()})
 }
 
 // Two alternatives for planner status, better maintainable version and the
@@ -461,18 +472,18 @@ func networkStatus(msg *msgtypes.NetworkStatus) {
 // 	enqueue(&pb.StatusMessage{ServiceStatus: msg.ToPb()})
 // }
 
-func PlannerStatus(configProfileName string, logMessages []string, extraData [][]byte) {
-	enqueue(&pb.StatusMessage{PlannerStatus: (&msgtypes.PlannerStatus{
+func (this *Monitor) PlannerStatus(configProfileName string, logMessages []string, extraData [][]byte) {
+	this.enqueue(&pb.StatusMessage{PlannerStatus: (&msgtypes.PlannerStatus{
 		ConfigProfileName: configProfileName,
 		Logs:              logMessages,
 		ExtraData:         extraData,
 	}).ToPb()})
 }
 
-func ServiceStatus(configProfileName string, logMessages []string, extraData [][]byte,
+func (this *Monitor) ServiceStatus(configProfileName string, logMessages []string, extraData [][]byte,
 	name string, port uint16, task string) {
 
-	enqueue(&pb.StatusMessage{ServiceStatus: (&msgtypes.ServiceStatus{
+	this.enqueue(&pb.StatusMessage{ServiceStatus: (&msgtypes.ServiceStatus{
 		ConfigProfileName: configProfileName,
 		Name:              name,
 		Port:              port,
@@ -484,6 +495,6 @@ func ServiceStatus(configProfileName string, logMessages []string, extraData [][
 
 // -----------------------------------------------------------------------------
 
-func IncomingControlMessages() chan *msgtypes.ControlMessage {
-	return controlMessageChannel
+func (this *Monitor) IncomingControlMessages() chan *msgtypes.ControlMessage {
+	return this.controlMessageChannel
 }

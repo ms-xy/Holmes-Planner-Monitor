@@ -1,8 +1,7 @@
 package client
 
 import (
-	LOG "log"
-	"os"
+	"log"
 )
 
 type LogLevel int
@@ -32,28 +31,26 @@ const (
 	LogLevelDebug
 )
 
-var (
-	// Logger instance with prefix
-	// Loglevel default is quiet = no logging
-	infoLog  *LOG.Logger = LOG.New(os.Stdout, "Status-Monitor: ", LOG.Ldate|LOG.Ltime|LOG.Lshortfile)
-	logLevel LogLevel    = LogLevelQuiet
-)
+type Logger struct {
+	LogOutput *log.Logger
+	LogLevel  LogLevel
+}
 
 // Set the log level to the specified value.
 // Possible values are LogLevelQuiet, LogLevelErrors, LogLevelInfo, and
 // LogLevelDebug
-func SetLogLevel(level LogLevel) {
-	logLevel = level
+func (this *Logger) SetLogLevel(level LogLevel) {
+	this.LogLevel = level
 }
 
-func log(msgLogLevel LogLevel, item interface{}) {
-	if logLevel >= msgLogLevel {
-		infoLog.Println(item)
+func (this *Logger) Log(msgLogLevel LogLevel, item interface{}) {
+	if this.LogLevel >= msgLogLevel {
+		this.LogOutput.Println(item)
 	}
 }
 
-func logf(msgLogLevel LogLevel, msg string, parameters ...interface{}) {
-	if logLevel >= msgLogLevel {
-		infoLog.Printf(msg, parameters...)
+func (this *Logger) Logf(msgLogLevel LogLevel, msg string, parameters ...interface{}) {
+	if this.LogLevel >= msgLogLevel {
+		this.LogOutput.Printf(msg, parameters...)
 	}
 }

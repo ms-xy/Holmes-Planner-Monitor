@@ -9,6 +9,8 @@ import (
 	"net"
 	// "sync/atomic" // atomic.AddUint64(&last_client_id, 1)
 	"time"
+
+	"fmt"
 )
 
 var (
@@ -48,12 +50,12 @@ func ListenAndServe(httpbinding string, statusrouter StatusRouter) error {
 }
 
 type StatusRouter interface {
-	RecvPlannerInfo(plannerinfo *types.PlannerInfo, client *Session, pid uint64) *types.ControlMessage
-	RecvSystemStatus(systemstatus *types.SystemStatus, client *Session, pid uint64) *types.ControlMessage
-	RecvNetworkStatus(networkstatus *types.NetworkStatus, client *Session, pid uint64) *types.ControlMessage
-	RecvPlannerStatus(plannerstatus *types.PlannerStatus, client *Session, pid uint64) *types.ControlMessage
-	RecvServiceStatus(servicestatus *types.ServiceStatus, client *Session, pid uint64) *types.ControlMessage
-	HandleError(err error, client *Session, pid uint64)
+	RecvPlannerInfo(*types.PlannerInfo, *Session) *types.ControlMessage
+	RecvSystemStatus(*types.SystemStatus, *Session) *types.ControlMessage
+	RecvNetworkStatus(*types.NetworkStatus, *Session) *types.ControlMessage
+	RecvPlannerStatus(*types.PlannerStatus, *Session) *types.ControlMessage
+	RecvServiceStatus(*types.ServiceStatus, *Session) *types.ControlMessage
+	HandleError(err error, client *Session) *types.ControlMessage
 }
 
 type AddressedStatusMessage struct {
@@ -91,22 +93,23 @@ func dispatcher() {
 
 			if asm.Message.ServiceStatus != nil {
 				session.Last.ServiceStatus = now
-				cmsg = router.RecvServiceStatus(asm.Message.ServiceStatus, session, asm.Message.PID)
+				fmt.Println(asm.Message.ServiceStatus.Logs[0])
+				cmsg = router.RecvServiceStatus(asm.Message.ServiceStatus, session)
 
 			} else if asm.Message.PlannerStatus != nil {
 				session.Last.PlannerStatus = now
-				cmsg = router.RecvPlannerStatus(asm.Message.PlannerStatus, session, asm.Message.PID)
+				cmsg = router.RecvPlannerStatus(asm.Message.PlannerStatus, session)
 
 			} else if asm.Message.SystemStatus != nil {
 				session.Last.SystemStatus = now
-				cmsg = router.RecvSystemStatus(asm.Message.SystemStatus, session, asm.Message.PID)
+				cmsg = router.RecvSystemStatus(asm.Message.SystemStatus, session)
 
 			} else if asm.Message.NetworkStatus != nil {
 				session.Last.NetworkStatus = now
-				cmsg = router.RecvNetworkStatus(asm.Message.NetworkStatus, session, asm.Message.PID)
+				cmsg = router.RecvNetworkStatus(asm.Message.NetworkStatus, session)
 
 			} else if asm.Message.PlannerInfo != nil {
-				cmsg = router.RecvPlannerInfo(asm.Message.PlannerInfo, session, asm.Message.PID)
+				cmsg = router.RecvPlannerInfo(asm.Message.PlannerInfo, session)
 			}
 
 			if cmsg != nil {
