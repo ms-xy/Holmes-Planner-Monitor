@@ -114,6 +114,7 @@ func dispatcher() {
 
 			if cmsg != nil {
 				cmsg.UUID = session.GetUuid()
+				cmsg.MachineUUID = session.GetMachineUuid()
 				outQueue <- AddressedControlMessage{asm.Address, cmsg}
 			}
 		}(asm)

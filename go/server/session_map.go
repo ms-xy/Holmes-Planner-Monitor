@@ -70,8 +70,7 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 		// Probably a new planner.
 		if !exists_session {
 			session = &Session{
-				machine_uuid: machine_uuid,
-				uuid:         uuid,
+				uuid: uuid,
 			}
 		}
 
@@ -80,13 +79,6 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 			// Create a new planners map and assign it.
 			planners = make(map[uint64]*Session)
 			this.map_uuid2machine[*machine_uuid] = planners
-
-			// Sessions that have been registered on a different machine are moved
-			// directly to the new machine. The reasoning behind this is very simple.
-			// For example if we have a malfunctioning planner that occupies an
-			// UUID that belongs to a different planner, then no data is "really" lost,
-			// but rather recorded with alternating machine UUIDs.
-			session.machine_uuid = machine_uuid
 		}
 	}
 
@@ -97,6 +89,13 @@ func (this *SessionMap) StartSession(asm AddressedStatusMessage) (*Session, bool
 	// Update connection related fields of the session object.
 	session.Address = asm.Address
 	session.pid = pid
+
+	// Sessions that have been registered on a different machine are moved
+	// directly to the new machine. The reasoning behind this is very simple.
+	// For example if we have a malfunctioning planner that occupies an
+	// UUID that belongs to a different planner, then no data is "really" lost,
+	// but rather recorded with alternating machine UUIDs.
+	session.machine_uuid = machine_uuid
 
 	// Session is only new if it did not exist before (even if it was assigned to
 	// a different machine previously)
