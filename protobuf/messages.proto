@@ -3,7 +3,7 @@ syntax = "proto3";
 package statusMessagesProtobuf;
 
 option java_package = "org.holmesprocessing.totem.monitoring";
-option java_outer_classname = "StatusMessagesProtobuf";
+option java_outer_classname = "Protobuf";
 
 
 

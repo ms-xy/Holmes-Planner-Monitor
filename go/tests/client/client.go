@@ -24,7 +24,7 @@ var (
 	waveLen     = 10 * time.Second
 	waves       = 1
 	waveSize    = 1
-	services    = 1
+	services    = 16
 	storageAddr = "10.0.4.79:9016"
 	// storageAddr = "127.0.0.1:9016"
 )
