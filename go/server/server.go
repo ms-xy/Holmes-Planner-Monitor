@@ -9,8 +9,6 @@ import (
 	"net"
 	// "sync/atomic" // atomic.AddUint64(&last_client_id, 1)
 	"time"
-
-	"fmt"
 )
 
 var (
@@ -93,7 +91,6 @@ func dispatcher() {
 
 			if asm.Message.ServiceStatus != nil {
 				session.Last.ServiceStatus = now
-				fmt.Println(asm.Message.ServiceStatus.Logs[0])
 				cmsg = router.RecvServiceStatus(asm.Message.ServiceStatus, session)
 
 			} else if asm.Message.PlannerStatus != nil {
