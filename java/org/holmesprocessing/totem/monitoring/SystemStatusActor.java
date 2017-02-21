@@ -20,8 +20,8 @@ public class SystemStatusActor extends TickerActor {
     public SystemStatusActor(ActorRef parent) throws Exception {
         super(Duration.create(1, TimeUnit.SECONDS));
         this.parent = parent;
-        SI_LOAD_SHIFT_BASE = 1 << 16;
-        SI_LOAD_SHIFT = SI_LOAD_SHIFT_BASE; // same as load shift base for now - needs to be adjusted to proc count!
+//        SI_LOAD_SHIFT_BASE = 1 << 16;
+//        SI_LOAD_SHIFT = SI_LOAD_SHIFT_BASE; // same as load shift base for now - needs to be adjusted to proc count!
         processorInfo.update();
     }
 
@@ -49,9 +49,9 @@ public class SystemStatusActor extends TickerActor {
 //                                .setTotal(100)
 //                                .setFree(40)
 //                                .build())
-                        .setLoads1(loadInfo.loads1 / SI_LOAD_SHIFT)
-                        .setLoads5(loadInfo.loads5 / SI_LOAD_SHIFT)
-                        .setLoads15(loadInfo.loads15 / SI_LOAD_SHIFT)
+                        .setLoads1(loadInfo.loads1 / processorInfo.logicalCores)
+                        .setLoads5(loadInfo.loads5 / processorInfo.logicalCores)
+                        .setLoads15(loadInfo.loads15 / processorInfo.logicalCores)
                         .setUptime(uptimeInfo.uptime)
                         .setMemoryMax(memInfo.memTotal)
                         .setMemoryUsage(memInfo.memUsed)

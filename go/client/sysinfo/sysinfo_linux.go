@@ -107,6 +107,7 @@ func (this *Sysinfo) UpdateMeminfo() {
 
 	// see htop source, e.g. at
 	// https://github.com/hishamhm/htop/blob/master/linux/Platform.c
+	// https://github.com/hishamhm/htop/blob/master/linux/LinuxProcessList.c
 	// as reference for this calculation
 	// TODO: find reason why MemTotal value in htop seem to be way off the
 	// MemTotal reported in /proc/meminfo (7687MB vs 8.1GiB, not even explainable

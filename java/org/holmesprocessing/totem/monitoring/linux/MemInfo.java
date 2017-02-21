@@ -7,9 +7,9 @@ public class MemInfo {
     public long memFree;
     public long memUsed;
     public long memAvailable;
-    public long buffers;
-    public long cached;
-    public long swapCached;
+//    public long buffers;
+//    public long cached;
+//    public long swapCached;
 //    public long active;
 //    public long inactive;
 //    public long active_anon;
@@ -26,9 +26,9 @@ public class MemInfo {
 //    public long writeback;
 //    public long anonPages;
 //    public long mapped;
-    public long shmem;
+//    public long shmem;
 //    public long slab;
-    public long sReclaimable;
+//    public long sReclaimable;
 //    public long sUnreclaim;
 //    public long kernelStack;
 //    public long pageTables;
@@ -85,6 +85,8 @@ public class MemInfo {
         String fileContents = ProcFileReader.read("/proc/meminfo");
         StringTokenizer fileLines = new StringTokenizer(fileContents, "\n", false);
 
+        long _buffers=0, _cached=0, _memTotal=0, _memFree=0, _shmem=0, _sReclaimable=0, _swapFree=0, _swapTotal=0;
+
         while (fileLines.hasMoreTokens()) {
             String line = fileLines.nextToken();
 
@@ -98,7 +100,7 @@ public class MemInfo {
                 */
                 case 'B':
                     if (name.startsWith("Buffers"))
-                        buffers = Long.parseLong(words.nextToken());
+                        _buffers = Long.parseLong(words.nextToken());
                     break;
                 /*
                 Cached:          1792948 kB
@@ -109,7 +111,7 @@ public class MemInfo {
                 */
                 case 'C':
                     if (name.startsWith("Cached"))
-                        cached = Long.parseLong(words.nextToken());
+                        _cached = Long.parseLong(words.nextToken());
                     break;
                 /*
                 Mapped:           620852 kB
@@ -120,11 +122,11 @@ public class MemInfo {
                 */
                 case 'M':
                     if (name.startsWith("MemTotal"))
-                        memTotal = Long.parseLong(words.nextToken());
+                        _memTotal = Long.parseLong(words.nextToken());
                     else if (name.startsWith("MemFree"))
-                        memFree = Long.parseLong(words.nextToken());
-                    else if (name.startsWith("MemAvailable"))
-                        memAvailable = Long.parseLong(words.nextToken());
+                        _memFree = Long.parseLong(words.nextToken());
+                    //else if (name.startsWith("MemAvailable"))
+                    //    _memAvailable = Long.parseLong(words.nextToken());
                     break;
                 /*
                 Shmem:            511652 kB
@@ -137,22 +139,24 @@ public class MemInfo {
                  */
                 case 'S':
                     if (name.startsWith("Shmem"))
-                        shmem = Long.parseLong(words.nextToken());
+                        _shmem = Long.parseLong(words.nextToken());
                     else if (name.startsWith("SReclaimable"))
-                        sReclaimable = Long.parseLong(words.nextToken());
-                    else if (name.startsWith("SwapCached"))
-                        swapCached = Long.parseLong(words.nextToken());
+                        _sReclaimable = Long.parseLong(words.nextToken());
+                    //else if (name.startsWith("SwapCached"))
+                    //    _swapCached = Long.parseLong(words.nextToken());
                     else if (name.startsWith("SwapFree"))
-                        swapFree = Long.parseLong(words.nextToken());
+                        _swapFree = Long.parseLong(words.nextToken());
                     else if (name.startsWith("SwapTotal"))
-                        swapTotal = Long.parseLong(words.nextToken());
+                        _swapTotal = Long.parseLong(words.nextToken());
                     break;
             }
         }
 
         // override values and calculate others
-        cached = cached + sReclaimable - shmem;
-        memAvailable = memFree + buffers + cached;
+        long cached = _cached + _sReclaimable - _shmem;
+        memTotal = _memTotal;
+        memFree = _memFree;
+        memAvailable = memFree + _buffers + cached;
         memUsed = memTotal - memAvailable;
 
         // apply scaling (kB)
@@ -162,9 +166,9 @@ public class MemInfo {
         memUsed *= 1024;
 
         // override swap and apply scaling (kB)
-        swapTotal = swapTotal * 1024;
-        swapFree = swapFree * 1024;
-        swapAvailable = swapFree * 1024;
-        swapUsed = (swapTotal - swapFree) * 1024;
+        swapTotal = _swapTotal * 1024;
+        swapFree = _swapFree * 1024;
+        swapAvailable = _swapFree * 1024;
+        swapUsed = (_swapTotal - _swapFree) * 1024;
     }
 }
