@@ -96,7 +96,7 @@ message PlannerStatus {
 message ServiceStatus {
   string                configProfileName = 1;
   string                name              = 2;
-  uint32                port              = 3;
+  string                uri               = 3;
   string                task              = 4;
 
   repeated string       logs              = 5;

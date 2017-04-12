@@ -52,24 +52,34 @@ public class MonitorActor extends UntypedActor {
         ), singleton);
     }
 
-    public static void PublishService(int port, String name, String configName) {
+    public static void PublishService(String uri, String name, String configName) {
         if (singleton == null) throw new NullPointerException();
         singleton.tell(Protobuf.StatusMessage.newBuilder().setServiceStatus(
                 Protobuf.ServiceStatus.newBuilder()
-                        .setPort(port)
+                        .setUri(uri)
                         .setName(name)
                         .setConfigProfileName(configName)
                         .build()
         ), singleton);
     }
 
-    public static void PublishServiceLogs(int port, String[] logs) {
+    public static void PublishServiceLogs(String uri, String[] logs) {
         if (singleton == null) throw new NullPointerException();
         singleton.tell(Protobuf.StatusMessage.newBuilder().setServiceStatus(
                 Protobuf.ServiceStatus.newBuilder()
-                        .setPort(port)
+                        .setUri(uri)
                         .addAllLogs(new StringListIterator(logs))
                         .build()
+        ), singleton);
+    }
+
+    public static void PublishServiceTask(String uri, String task) {
+        if (singleton == null) throw new NullPointerException();
+        singleton.tell(Protobuf.StatusMessage.newBuilder().setServiceStatus(
+                Protobuf.ServiceStatus.newBuilder()
+                    .setUri(uri)
+                    .setTask(task)
+                    .build()
         ), singleton);
     }
 

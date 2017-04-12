@@ -41,8 +41,6 @@ public class ProcessorInfo {
             String line = lines.nextToken();
             StringTokenizer words = new StringTokenizer(line, " ", false);
             String key = words.nextToken();
-            System.out.println(line);
-            System.out.println(key);
             if (key.startsWith("processor")) {
                 logicalCores = Math.max(logicalCores, Long.parseLong(words.nextToken()));
 

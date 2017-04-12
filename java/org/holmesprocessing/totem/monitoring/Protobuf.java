@@ -5835,9 +5835,14 @@ public final class Protobuf {
         getNameBytes();
 
     /**
-     * <code>optional uint32 port = 3;</code>
+     * <code>optional string uri = 3;</code>
      */
-    int getPort();
+    java.lang.String getUri();
+    /**
+     * <code>optional string uri = 3;</code>
+     */
+    com.google.protobuf.ByteString
+        getUriBytes();
 
     /**
      * <code>optional string task = 4;</code>
@@ -5895,7 +5900,7 @@ public final class Protobuf {
     private ServiceStatus() {
       configProfileName_ = "";
       name_ = "";
-      port_ = 0;
+      uri_ = "";
       task_ = "";
       logs_ = com.google.protobuf.LazyStringArrayList.EMPTY;
       extraData_ = java.util.Collections.emptyList();
@@ -5938,9 +5943,10 @@ public final class Protobuf {
               name_ = s;
               break;
             }
-            case 24: {
+            case 26: {
+              java.lang.String s = input.readStringRequireUtf8();
 
-              port_ = input.readUInt32();
+              uri_ = s;
               break;
             }
             case 34: {
@@ -6064,13 +6070,38 @@ public final class Protobuf {
       }
     }
 
-    public static final int PORT_FIELD_NUMBER = 3;
-    private int port_;
+    public static final int URI_FIELD_NUMBER = 3;
+    private volatile java.lang.Object uri_;
     /**
-     * <code>optional uint32 port = 3;</code>
+     * <code>optional string uri = 3;</code>
      */
-    public int getPort() {
-      return port_;
+    public java.lang.String getUri() {
+      java.lang.Object ref = uri_;
+      if (ref instanceof java.lang.String) {
+        return (java.lang.String) ref;
+      } else {
+        com.google.protobuf.ByteString bs = 
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        uri_ = s;
+        return s;
+      }
+    }
+    /**
+     * <code>optional string uri = 3;</code>
+     */
+    public com.google.protobuf.ByteString
+        getUriBytes() {
+      java.lang.Object ref = uri_;
+      if (ref instanceof java.lang.String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        uri_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
     }
 
     public static final int TASK_FIELD_NUMBER = 4;
@@ -6176,8 +6207,8 @@ public final class Protobuf {
       if (!getNameBytes().isEmpty()) {
         com.google.protobuf.GeneratedMessageV3.writeString(output, 2, name_);
       }
-      if (port_ != 0) {
-        output.writeUInt32(3, port_);
+      if (!getUriBytes().isEmpty()) {
+        com.google.protobuf.GeneratedMessageV3.writeString(output, 3, uri_);
       }
       if (!getTaskBytes().isEmpty()) {
         com.google.protobuf.GeneratedMessageV3.writeString(output, 4, task_);
@@ -6201,9 +6232,8 @@ public final class Protobuf {
       if (!getNameBytes().isEmpty()) {
         size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, name_);
       }
-      if (port_ != 0) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeUInt32Size(3, port_);
+      if (!getUriBytes().isEmpty()) {
+        size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, uri_);
       }
       if (!getTaskBytes().isEmpty()) {
         size += com.google.protobuf.GeneratedMessageV3.computeStringSize(4, task_);
@@ -6245,8 +6275,8 @@ public final class Protobuf {
           .equals(other.getConfigProfileName());
       result = result && getName()
           .equals(other.getName());
-      result = result && (getPort()
-          == other.getPort());
+      result = result && getUri()
+          .equals(other.getUri());
       result = result && getTask()
           .equals(other.getTask());
       result = result && getLogsList()
@@ -6267,8 +6297,8 @@ public final class Protobuf {
       hash = (53 * hash) + getConfigProfileName().hashCode();
       hash = (37 * hash) + NAME_FIELD_NUMBER;
       hash = (53 * hash) + getName().hashCode();
-      hash = (37 * hash) + PORT_FIELD_NUMBER;
-      hash = (53 * hash) + getPort();
+      hash = (37 * hash) + URI_FIELD_NUMBER;
+      hash = (53 * hash) + getUri().hashCode();
       hash = (37 * hash) + TASK_FIELD_NUMBER;
       hash = (53 * hash) + getTask().hashCode();
       if (getLogsCount() > 0) {
@@ -6401,7 +6431,7 @@ public final class Protobuf {
 
         name_ = "";
 
-        port_ = 0;
+        uri_ = "";
 
         task_ = "";
 
@@ -6435,7 +6465,7 @@ public final class Protobuf {
         int to_bitField0_ = 0;
         result.configProfileName_ = configProfileName_;
         result.name_ = name_;
-        result.port_ = port_;
+        result.uri_ = uri_;
         result.task_ = task_;
         if (((bitField0_ & 0x00000010) == 0x00000010)) {
           logs_ = logs_.getUnmodifiableView();
@@ -6497,8 +6527,9 @@ public final class Protobuf {
           name_ = other.name_;
           onChanged();
         }
-        if (other.getPort() != 0) {
-          setPort(other.getPort());
+        if (!other.getUri().isEmpty()) {
+          uri_ = other.uri_;
+          onChanged();
         }
         if (!other.getTask().isEmpty()) {
           task_ = other.task_;
@@ -6689,28 +6720,71 @@ public final class Protobuf {
         return this;
       }
 
-      private int port_ ;
+      private java.lang.Object uri_ = "";
       /**
-       * <code>optional uint32 port = 3;</code>
+       * <code>optional string uri = 3;</code>
        */
-      public int getPort() {
-        return port_;
+      public java.lang.String getUri() {
+        java.lang.Object ref = uri_;
+        if (!(ref instanceof java.lang.String)) {
+          com.google.protobuf.ByteString bs =
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          uri_ = s;
+          return s;
+        } else {
+          return (java.lang.String) ref;
+        }
       }
       /**
-       * <code>optional uint32 port = 3;</code>
+       * <code>optional string uri = 3;</code>
        */
-      public Builder setPort(int value) {
-        
-        port_ = value;
+      public com.google.protobuf.ByteString
+          getUriBytes() {
+        java.lang.Object ref = uri_;
+        if (ref instanceof String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          uri_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+      /**
+       * <code>optional string uri = 3;</code>
+       */
+      public Builder setUri(
+          java.lang.String value) {
+        if (value == null) {
+    throw new NullPointerException();
+  }
+  
+        uri_ = value;
         onChanged();
         return this;
       }
       /**
-       * <code>optional uint32 port = 3;</code>
+       * <code>optional string uri = 3;</code>
        */
-      public Builder clearPort() {
+      public Builder clearUri() {
         
-        port_ = 0;
+        uri_ = getDefaultInstance().getUri();
+        onChanged();
+        return this;
+      }
+      /**
+       * <code>optional string uri = 3;</code>
+       */
+      public Builder setUriBytes(
+          com.google.protobuf.ByteString value) {
+        if (value == null) {
+    throw new NullPointerException();
+  }
+  checkByteStringIsUtf8(value);
+        
+        uri_ = value;
         onChanged();
         return this;
       }
@@ -10413,20 +10487,20 @@ public final class Protobuf {
       "(\0132(.statusMessagesProtobuf.NetworkInter" +
       "face\"K\n\rPlannerStatus\022\031\n\021configProfileNa" +
       "me\030\001 \001(\t\022\014\n\004logs\030\002 \003(\t\022\021\n\textraData\030\020 \003(" +
-      "\014\"u\n\rServiceStatus\022\031\n\021configProfileName\030" +
-      "\001 \001(\t\022\014\n\004name\030\002 \001(\t\022\014\n\004port\030\003 \001(\r\022\014\n\004tas" +
-      "k\030\004 \001(\t\022\014\n\004logs\030\005 \003(\t\022\021\n\textraData\030\020 \003(\014" +
-      "\"Z\n\tHarddrive\022\016\n\006fsType\030\001 \001(\t\022\022\n\nmountPo" +
-      "int\030\002 \001(\t\022\014\n\004used\030\003 \001(\004\022\r\n\005total\030\004 \001(\004\022\014" +
-      "\n\004free\030\005 \001(\004\"k\n\020NetworkInterface\022\n\n\002id\030\001",
-      " \001(\005\022\014\n\004name\030\002 \001(\t\022\n\n\002ip\030\003 \001(\014\022\017\n\007netmas" +
-      "k\030\004 \001(\014\022\021\n\tbroadcast\030\005 \001(\014\022\r\n\005scope\030\006 \001(" +
-      "\t\"*\n\014StatusKvPair\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030" +
-      "\002 \001(\t\"t\n\016ControlMessage\022\014\n\004uuid\030\001 \001(\014\022\023\n" +
-      "\013machineUuid\030\002 \001(\014\022\023\n\nackConnect\030\200\020 \001(\010\022" +
-      "\026\n\rackDisconnect\030\201\020 \001(\010\022\022\n\textraData\030\202\020 " +
-      "\003(\014B1\n%org.holmesprocessing.totem.monito" +
-      "ringB\010Protobufb\006proto3"
+      "\014\"t\n\rServiceStatus\022\031\n\021configProfileName\030" +
+      "\001 \001(\t\022\014\n\004name\030\002 \001(\t\022\013\n\003uri\030\003 \001(\t\022\014\n\004task" +
+      "\030\004 \001(\t\022\014\n\004logs\030\005 \003(\t\022\021\n\textraData\030\020 \003(\014\"" +
+      "Z\n\tHarddrive\022\016\n\006fsType\030\001 \001(\t\022\022\n\nmountPoi" +
+      "nt\030\002 \001(\t\022\014\n\004used\030\003 \001(\004\022\r\n\005total\030\004 \001(\004\022\014\n" +
+      "\004free\030\005 \001(\004\"k\n\020NetworkInterface\022\n\n\002id\030\001 ",
+      "\001(\005\022\014\n\004name\030\002 \001(\t\022\n\n\002ip\030\003 \001(\014\022\017\n\007netmask" +
+      "\030\004 \001(\014\022\021\n\tbroadcast\030\005 \001(\014\022\r\n\005scope\030\006 \001(\t" +
+      "\"*\n\014StatusKvPair\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002" +
+      " \001(\t\"t\n\016ControlMessage\022\014\n\004uuid\030\001 \001(\014\022\023\n\013" +
+      "machineUuid\030\002 \001(\014\022\023\n\nackConnect\030\200\020 \001(\010\022\026" +
+      "\n\rackDisconnect\030\201\020 \001(\010\022\022\n\textraData\030\202\020 \003" +
+      "(\014B1\n%org.holmesprocessing.totem.monitor" +
+      "ingB\010Protobufb\006proto3"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
         new com.google.protobuf.Descriptors.FileDescriptor.    InternalDescriptorAssigner() {
@@ -10475,7 +10549,7 @@ public final class Protobuf {
     internal_static_statusMessagesProtobuf_ServiceStatus_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_statusMessagesProtobuf_ServiceStatus_descriptor,
-        new java.lang.String[] { "ConfigProfileName", "Name", "Port", "Task", "Logs", "ExtraData", });
+        new java.lang.String[] { "ConfigProfileName", "Name", "Uri", "Task", "Logs", "ExtraData", });
     internal_static_statusMessagesProtobuf_Harddrive_descriptor =
       getDescriptor().getMessageTypes().get(6);
     internal_static_statusMessagesProtobuf_Harddrive_fieldAccessorTable = new

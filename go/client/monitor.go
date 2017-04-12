@@ -481,12 +481,12 @@ func (this *Monitor) PlannerStatus(configProfileName string, logMessages []strin
 }
 
 func (this *Monitor) ServiceStatus(configProfileName string, logMessages []string, extraData [][]byte,
-	name string, port uint16, task string) {
+	name string, uri string, task string) {
 
 	this.enqueue(&pb.StatusMessage{ServiceStatus: (&msgtypes.ServiceStatus{
 		ConfigProfileName: configProfileName,
 		Name:              name,
-		Port:              port,
+		Uri:               uri,
 		Task:              task,
 		Logs:              logMessages,
 		ExtraData:         extraData,

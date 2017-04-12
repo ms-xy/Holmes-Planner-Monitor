@@ -256,7 +256,7 @@ func (this *PlannerStatus) ToPb() *pb.PlannerStatus {
 type ServiceStatus struct {
 	ConfigProfileName string
 	Name              string
-	Port              uint16
+	Uri               string
 	Task              string
 	Logs              []string
 	ExtraData         [][]byte
@@ -265,7 +265,7 @@ type ServiceStatus struct {
 func (this *ServiceStatus) FromPb(o *pb.ServiceStatus) *ServiceStatus {
 	this.ConfigProfileName = o.ConfigProfileName
 	this.Name = o.Name
-	this.Port = uint16(o.Port)
+	this.Uri = o.Uri
 	this.Task = o.Task
 	this.Logs = o.Logs
 	this.ExtraData = o.ExtraData
@@ -276,7 +276,7 @@ func (this *ServiceStatus) ToPb() *pb.ServiceStatus {
 	return &pb.ServiceStatus{
 		ConfigProfileName: this.ConfigProfileName,
 		Name:              this.Name,
-		Port:              uint32(this.Port),
+		Uri:               this.Uri,
 		Task:              this.Task,
 		Logs:              this.Logs,
 		ExtraData:         this.ExtraData,
